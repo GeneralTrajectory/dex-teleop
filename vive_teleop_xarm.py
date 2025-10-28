@@ -9,16 +9,18 @@ Safety Features:
 - Workspace boundary enforcement
 - IK reachability validation (prevents unreachable poses)
 - Smooth re-engagement after workspace violations
+- Foot pedal stop (monitors 'b' key press)
 
 Performance:
 - Real-time servo mode streaming at 100Hz for minimal latency
 - Smoothstep easing for gradual re-engagement (default 30 frames = 0.3s)
 
 Usage:
-    export XARM_IP="192.168.1.214"  # Right arm
+    export XARM_IP="192.168.1.214"
     export VIVE_POSITION_SCALE="1.5"
-    export TELEOP_REENGAGEMENT_STEPS="30"  # 30=default, 50=extra smooth, 20=faster
     python vive_teleop_xarm.py
+    
+    Stop: Ctrl+C or press 'b' key (foot pedal)
 """
 
 import sys
@@ -28,6 +30,7 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, Tuple, Optional
 from scipy.spatial.transform import Rotation as R
+import threading
 
 # Add Vive_Tracker to path
 sys.path.insert(0, str(Path(__file__).parent / 'Vive_Tracker'))
@@ -39,6 +42,71 @@ anydex_path = '/home/joshua/Documents/Sources/Papers/Cursor/AnyDexGrasp'
 if anydex_path not in sys.path:
     sys.path.insert(0, anydex_path)
 from xarm_adapter import create_xarm_adapter, XArmAdapter
+
+try:
+    import select
+    import tty
+    import termios
+    KEYBOARD_AVAILABLE = True
+except ImportError:
+    KEYBOARD_AVAILABLE = False
+
+
+class FootPedalMonitor:
+    """Monitor foot pedal (sends 'b' key) for stop signal in a background thread."""
+    
+    def __init__(self):
+        self.stop_requested = False
+        self._thread = None
+        self._running = False
+        self._old_terminal_settings = None
+        
+        if KEYBOARD_AVAILABLE and sys.stdin.isatty():
+            print("🦶 Foot pedal enabled - press 'b' to stop")
+        else:
+            print("⚠️ Foot pedal unavailable (stdin not a terminal)")
+    
+    def start(self):
+        """Start monitoring foot pedal in background thread."""
+        if not KEYBOARD_AVAILABLE or not sys.stdin.isatty():
+            return
+        
+        # Save terminal settings and set to raw mode
+        try:
+            self._old_terminal_settings = termios.tcgetattr(sys.stdin)
+            tty.setraw(sys.stdin.fileno())
+        except Exception as e:
+            print(f"⚠️ Could not set terminal to raw mode: {e}")
+            return
+        
+        self._running = True
+        self._thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self._thread.start()
+    
+    def _monitor_loop(self):
+        """Background thread that monitors for 'b' key press."""
+        while self._running:
+            if select.select([sys.stdin], [], [], 0.1)[0]:
+                try:
+                    char = sys.stdin.read(1)
+                    if char == 'b':
+                        print("\n\n🦶 Foot pedal pressed - stopping!")
+                        self.stop_requested = True
+                        break
+                except Exception:
+                    pass
+    
+    def stop(self):
+        """Stop monitoring and restore terminal settings."""
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=1.0)
+        
+        if self._old_terminal_settings:
+            try:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self._old_terminal_settings)
+            except Exception:
+                pass
 
 
 class ViveToXArmMapper:
@@ -105,7 +173,7 @@ class ViveToXArmMapper:
         # Per-axis rotation fine-tuning (multiplied after global scale)
         # Defaults to 1.0 so existing behavior is unchanged
         self.rotation_scale_roll = float(os.environ.get('VIVE_ROTATION_SCALE_ROLL', '1.0'))
-        self.rotation_scale_pitch = float(os.environ.get('VIVE_ROTATION_SCALE_PITCH', '3.0'))
+        self.rotation_scale_pitch = float(os.environ.get('VIVE_ROTATION_SCALE_PITCH', '2.0'))
         self.rotation_scale_yaw = float(os.environ.get('VIVE_ROTATION_SCALE_YAW', '1.0'))
         
         # Reference poses (set during calibration)
@@ -250,7 +318,7 @@ class ViveToXArmMapper:
         rotvec_remapped = np.array([
             -rotvec_delta[1],  # xArm roll (X-axis rotation) = -tracker pitch (Y-axis rotation)
             rotvec_delta[0],   # xArm pitch (Y-axis rotation) = +tracker roll (X-axis rotation)
-            -rotvec_delta[2]   # xArm yaw (Z-axis rotation) = -tracker yaw (Z-axis rotation)
+            rotvec_delta[2]   # xArm yaw (Z-axis rotation) = tracker yaw (Z-axis rotation)
         ], dtype=np.float32)
         
         # Apply per-axis fine-tune and global scale
@@ -407,14 +475,13 @@ class ViveToXArmMapper:
         
         Args:
             pose_dict: Target pose
-            speed: Motion speed in mm/s (reserved in servo mode, use 100)
+            speed: Motion speed in mm/s (passed through to xArm, often ignored in servo mode)
             
         Returns:
             True if command sent successfully
         """
         try:
             # set_servo_cartesian: designed for streaming at high rates
-            # speed and mvacc are reserved (ignored) in servo mode
             mvpose = [
                 pose_dict['x'],
                 pose_dict['y'],
@@ -423,7 +490,7 @@ class ViveToXArmMapper:
                 pose_dict['pitch'],
                 pose_dict['yaw']
             ]
-            ret = self.adapter.arm.set_servo_cartesian(mvpose, speed=100, mvacc=2000)
+            ret = self.adapter.arm.set_servo_cartesian(mvpose, speed=speed, mvacc=2000)
             return ret == 0
         except Exception:
             return False
@@ -552,9 +619,13 @@ def run_teleoperation():
         mapper.shutdown()
         return 1
     
+    # Start foot pedal monitor
+    foot_pedal = FootPedalMonitor()
+    foot_pedal.start()
+    
     # Main control loop
     print(f"\n🎮 Teleoperation active at {rate_hz} Hz")
-    print("   Press Ctrl+C to stop")
+    print("   Press Ctrl+C or foot pedal to stop")
     print("-"*60)
     
     last_safe_pose = None
@@ -563,6 +634,10 @@ def run_teleoperation():
     
     try:
         while True:
+            # Check for foot pedal stop
+            if foot_pedal.stop_requested:
+                print("\n🛑 Stop requested by foot pedal")
+                break
             loop_start = time.time()
             
             # Get current tracker pose
@@ -690,6 +765,7 @@ def run_teleoperation():
     
     finally:
         # Clean shutdown
+        foot_pedal.stop()
         mapper.shutdown()
         
         print(f"\n📊 Session statistics:")
