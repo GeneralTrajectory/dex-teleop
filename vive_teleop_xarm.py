@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Vive Tracker Teleoperation for xArm Robot
+Vive Tracker Teleoperation for xArm Robot (Unimanual & Bimanual)
 Maps Vive Tracker 3.0 movements to xArm with comprehensive safety features.
 
 Safety Features:
@@ -16,9 +16,18 @@ Performance:
 - Smoothstep easing for gradual re-engagement (default 30 frames = 0.3s)
 
 Usage:
-    export XARM_IP="192.168.1.214"
-    export VIVE_POSITION_SCALE="1.5"
-    python vive_teleop_xarm.py
+    # Right arm only (default)
+    export XARM_IP_RIGHT="192.168.1.214"
+    python vive_teleop_xarm.py --mode right
+    
+    # Left arm only
+    export XARM_IP_LEFT="192.168.1.111"
+    python vive_teleop_xarm.py --mode left
+    
+    # Bimanual (both arms)
+    export XARM_IP_LEFT="192.168.1.111"
+    export XARM_IP_RIGHT="192.168.1.214"
+    python vive_teleop_xarm.py --mode both
     
     Stop: Ctrl+C or press 'b' key (foot pedal)
 """
@@ -113,50 +122,34 @@ class ViveToXArmMapper:
     """Maps Vive Tracker poses to xArm commands with safety enforcement."""
     
     def __init__(self,
-                 xarm_ip: str = '192.168.1.214',
-                 tracker_serial: Optional[str] = None,
+                 xarm_ip: str,
+                 tracker: object,
+                 arm_label: str = "arm",
                  position_scale: float = 1.0,
                  rotation_scale: float = 1.0):
         """
-        Initialize the Vive-to-xArm mapper.
+        Initialize the Vive-to-xArm mapper for a single arm.
         
         Args:
             xarm_ip: IP address of the xArm robot
-            tracker_serial: Serial number of specific tracker (None = auto-detect first)
+            tracker: Vive tracker object (already initialized)
+            arm_label: Label for this arm ("left", "right", or "arm")
             position_scale: Scale factor for position deltas (m -> mm)
             rotation_scale: Scale factor for rotation deltas
         """
-        print(f"Initializing ViveToXArmMapper...")
+        self.arm_label = arm_label
+        self.tracker = tracker
+        
+        print(f"\n🤖 Initializing {arm_label} arm mapper...")
         print(f"  xArm IP: {xarm_ip}")
+        print(f"  Tracker: {tracker.get_serial()}")
         print(f"  Position scale: {position_scale}")
         print(f"  Rotation scale: {rotation_scale}")
         
-        # Initialize Vive tracker
-        print("\n📡 Initializing Vive Tracker...")
-        self.vive = ViveTrackerModule()
-        self.vive.print_discovered_objects()
-        
-        trackers = self.vive.return_selected_devices("tracker")
-        if len(trackers) == 0:
-            raise RuntimeError("No Vive trackers detected! Ensure tracker is powered on.")
-        
-        # Select tracker
-        if tracker_serial:
-            matching = [t for name, t in trackers.items() if t.get_serial() == tracker_serial]
-            if not matching:
-                raise RuntimeError(f"Tracker with serial {tracker_serial} not found")
-            self.tracker = matching[0]
-            print(f"✅ Using tracker: {tracker_serial}")
-        else:
-            self.tracker = list(trackers.values())[0]
-            print(f"✅ Using first detected tracker: {self.tracker.get_serial()}")
-        
-        # Initialize xArm adapter
-        print(f"\n🤖 Connecting to xArm at {xarm_ip}...")
-        os.environ['XARM_IP'] = xarm_ip
-        os.environ['EXECUTE_LIVE'] = '1'
-        
-        self.adapter = create_xarm_adapter(
+        # Initialize xArm adapter directly with IP
+        # Don't use create_xarm_adapter() to avoid environment variable conflicts in bimanual mode
+        self.adapter = XArmAdapter(
+            ip=xarm_ip,
             execute_live=True,
             use_inspire_api=False  # No gripper control for now
         )
@@ -165,7 +158,7 @@ class ViveToXArmMapper:
         if self.adapter.arm is None:
             raise RuntimeError(f"Failed to connect to xArm at {xarm_ip}")
         
-        print("✅ xArm connected successfully")
+        print(f"✅ {arm_label} xArm connected successfully")
         
         # Store scaling factors
         self.position_scale = position_scale
@@ -173,7 +166,7 @@ class ViveToXArmMapper:
         # Per-axis rotation fine-tuning (multiplied after global scale)
         # Defaults to 1.0 so existing behavior is unchanged
         self.rotation_scale_roll = float(os.environ.get('VIVE_ROTATION_SCALE_ROLL', '1.0'))
-        self.rotation_scale_pitch = float(os.environ.get('VIVE_ROTATION_SCALE_PITCH', '2.0'))
+        self.rotation_scale_pitch = float(os.environ.get('VIVE_ROTATION_SCALE_PITCH', '1.0'))
         self.rotation_scale_yaw = float(os.environ.get('VIVE_ROTATION_SCALE_YAW', '1.0'))
         
         # Reference poses (set during calibration)
@@ -263,13 +256,13 @@ class ViveToXArmMapper:
         self.base_T_tcp_home[:3, :3] = R_home
         self.base_T_tcp_home[:3, 3] = t_home
         
-        print("\n🎮 Calibration complete!")
+        print(f"\n🎮 {self.arm_label} calibration complete!")
         
         # Enable servo mode for real-time streaming
         if not self.enable_servo_mode():
-            raise RuntimeError("Failed to enable servo mode")
+            raise RuntimeError(f"Failed to enable servo mode for {self.arm_label}")
         
-        print("🎮 Teleoperation ready!")
+        print(f"🎮 {self.arm_label} teleoperation ready!")
     
     def compute_target_pose(self, current_tracker_T: np.ndarray) -> Dict[str, float]:
         """
@@ -576,47 +569,178 @@ class ViveToXArmMapper:
         print("✅ Shutdown complete")
 
 
-def run_teleoperation():
-    """Main teleoperation control loop."""
+def run_teleoperation(mode: str = 'right'):
+    """Main teleoperation control loop.
+    
+    Args:
+        mode: 'left', 'right', or 'both' for bimanual control
+    """
     
     # Configuration from environment
-    xarm_ip = os.environ.get('XARM_IP', '192.168.1.214')
     position_scale = float(os.environ.get('VIVE_POSITION_SCALE', '1.0'))
     rotation_scale = float(os.environ.get('VIVE_ROTATION_SCALE', '1.0'))
     rate_hz = int(os.environ.get('TELEOP_RATE_HZ', '100'))  # 100Hz for servo mode streaming
     speed_mm_s = int(os.environ.get('TELEOP_SPEED', '100'))  # Reserved in servo mode (ignored)
     
     print("="*60)
-    print("Vive Tracker Teleoperation for xArm")
+    print(f"Vive Tracker Teleoperation for xArm ({mode.upper()} mode)")
     print("="*60)
     
-    # Initialize mapper
-    try:
-        mapper = ViveToXArmMapper(
-            xarm_ip=xarm_ip,
-            position_scale=position_scale,
-            rotation_scale=rotation_scale
-        )
-    except Exception as e:
-        print(f"❌ Initialization failed: {e}")
+    # Initialize Vive tracker system
+    print("\n📡 Initializing Vive Tracker system...")
+    vive = ViveTrackerModule()
+    vive.print_discovered_objects()
+    
+    trackers = vive.return_selected_devices("tracker")
+    if len(trackers) == 0:
+        print("❌ No Vive trackers detected! Ensure trackers are powered on.")
         return 1
     
-    # Move to home position
+    tracker_list = list(trackers.values())
+    print(f"✅ Found {len(tracker_list)} tracker(s)")
+    
+    # Validate tracker count for mode
+    if mode == 'both' and len(tracker_list) < 2:
+        print(f"❌ Bimanual mode requires 2 trackers, but only {len(tracker_list)} found")
+        return 1
+    
+    # Tracker serial numbers (hardcoded for your setup)
+    RIGHT_TRACKER_SERIAL = 'LHR-A56A8A21'  # Right wrist
+    LEFT_TRACKER_SERIAL = 'LHR-D51DBC11'   # Left wrist
+    
+    # Build tracker lookup by serial
+    trackers_by_serial = {t.get_serial(): t for t in tracker_list}
+    
+    # Initialize mappers based on mode
+    mappers = {}
+    
     try:
-        print("\n🏠 Moving arm to home position...")
-        mapper.adapter.go_home()
-        print("✅ Arm at home position")
+        if mode in ['left', 'both']:
+            left_ip = os.environ.get('XARM_IP_LEFT', '192.168.1.111')
+            # Use left-hand tracker (LHR-D51DBC11)
+            if LEFT_TRACKER_SERIAL in trackers_by_serial:
+                left_tracker = trackers_by_serial[LEFT_TRACKER_SERIAL]
+                print(f"✅ Using left-hand tracker: {LEFT_TRACKER_SERIAL}")
+            else:
+                print(f"⚠️  Left tracker {LEFT_TRACKER_SERIAL} not found, using first available")
+                left_tracker = tracker_list[0]
+            
+            mappers['left'] = ViveToXArmMapper(
+                xarm_ip=left_ip,
+                tracker=left_tracker,
+                arm_label="left",
+                position_scale=position_scale,
+                rotation_scale=rotation_scale
+            )
+        
+        if mode in ['right', 'both']:
+            right_ip = os.environ.get('XARM_IP_RIGHT', '192.168.1.214')
+            # Use right-hand tracker (LHR-A56A8A21)
+            if RIGHT_TRACKER_SERIAL in trackers_by_serial:
+                right_tracker = trackers_by_serial[RIGHT_TRACKER_SERIAL]
+                print(f"✅ Using right-hand tracker: {RIGHT_TRACKER_SERIAL}")
+            else:
+                print(f"⚠️  Right tracker {RIGHT_TRACKER_SERIAL} not found, using first available")
+                right_tracker = tracker_list[0]
+            
+            mappers['right'] = ViveToXArmMapper(
+                xarm_ip=right_ip,
+                tracker=right_tracker,
+                arm_label="right",
+                position_scale=position_scale,
+                rotation_scale=rotation_scale
+            )
+    except Exception as e:
+        print(f"❌ Mapper initialization failed: {e}")
+        return 1
+    
+    # Move arms to home position
+    try:
+        for label, mapper in mappers.items():
+            print(f"\n🏠 Moving {label} arm to home position...")
+            mapper.adapter.go_home()
+            print(f"✅ {label} arm at home position")
     except Exception as e:
         print(f"❌ Failed to move to home: {e}")
-        mapper.shutdown()
+        for mapper in mappers.values():
+            mapper.shutdown()
         return 1
     
     # Calibrate reference poses
     try:
-        mapper.calibrate_home_poses(duration_s=3.0)
+        if mode == 'both':
+            # Bimanual: calibrate both arms simultaneously
+            print(f"\n🎯 Calibrating BOTH arms simultaneously...")
+            print(f"🎯 Calibrating home poses (6.0s countdown)...")
+            print("   Hold BOTH trackers steady in your starting positions!")
+            
+            # Shared countdown
+            for i in range(6, 0, -1):
+                print(f"   {i}...", flush=True)
+                time.sleep(1.0)
+            
+            # Capture both trackers and arm poses simultaneously
+            for label, mapper in mappers.items():
+                # Capture tracker home pose
+                mapper.tracker_home = mapper.tracker.get_T().copy()
+                print(f"\n✅ [{label}] Tracker home captured:")
+                print(f"   Position (m): [{mapper.tracker_home[0,3]:.3f}, "
+                      f"{mapper.tracker_home[1,3]:.3f}, {mapper.tracker_home[2,3]:.3f}]")
+                
+                # Capture arm home pose
+                current_tcp_pose = mapper.adapter._get_live_tcp_pose()
+                if current_tcp_pose is None:
+                    raise RuntimeError(f"Failed to query {label} xArm TCP pose during calibration")
+                
+                mapper.arm_home_pose = {
+                    'x': float(current_tcp_pose[0]),
+                    'y': float(current_tcp_pose[1]),
+                    'z': float(current_tcp_pose[2]),
+                    'roll': float(current_tcp_pose[3]),
+                    'pitch': float(current_tcp_pose[4]),
+                    'yaw': float(current_tcp_pose[5])
+                }
+                
+                print(f"✅ [{label}] Arm home captured:")
+                print(f"   Position (mm): [{mapper.arm_home_pose['x']:.1f}, "
+                      f"{mapper.arm_home_pose['y']:.1f}, {mapper.arm_home_pose['z']:.1f}]")
+                print(f"   Orientation (deg): [roll={mapper.arm_home_pose['roll']:.1f}, "
+                      f"pitch={mapper.arm_home_pose['pitch']:.1f}, yaw={mapper.arm_home_pose['yaw']:.1f}]")
+                
+                # Convert arm home to 4x4 matrix
+                from scipy.spatial.transform import Rotation as R
+                t_home = np.array([
+                    mapper.arm_home_pose['x'] / 1000.0,
+                    mapper.arm_home_pose['y'] / 1000.0,
+                    mapper.arm_home_pose['z'] / 1000.0
+                ], dtype=np.float32)
+                
+                R_home = R.from_euler('xyz', [
+                    mapper.arm_home_pose['roll'],
+                    mapper.arm_home_pose['pitch'],
+                    mapper.arm_home_pose['yaw']
+                ], degrees=True).as_matrix().astype(np.float32)
+                
+                mapper.base_T_tcp_home = np.eye(4, dtype=np.float32)
+                mapper.base_T_tcp_home[:3, :3] = R_home
+                mapper.base_T_tcp_home[:3, 3] = t_home
+                
+                print(f"\n🎮 [{label}] calibration complete!")
+                
+                # Enable servo mode
+                if not mapper.enable_servo_mode():
+                    raise RuntimeError(f"Failed to enable servo mode for {label}")
+                
+                print(f"🎮 [{label}] teleoperation ready!")
+        else:
+            # Unimanual: calibrate single arm
+            for label, mapper in mappers.items():
+                print(f"\n🎯 Calibrating {label} arm...")
+                mapper.calibrate_home_poses(duration_s=6.0)
     except Exception as e:
         print(f"❌ Calibration failed: {e}")
-        mapper.shutdown()
+        for mapper in mappers.values():
+            mapper.shutdown()
         return 1
     
     # Start foot pedal monitor
@@ -628,9 +752,8 @@ def run_teleoperation():
     print("   Press Ctrl+C or foot pedal to stop")
     print("-"*60)
     
-    last_safe_pose = None
     loop_count = 0
-    safety_violations = 0
+    safety_violations = {label: 0 for label in mappers.keys()}
     
     try:
         while True:
@@ -640,112 +763,90 @@ def run_teleoperation():
                 break
             loop_start = time.time()
             
-            # Get current tracker pose
-            try:
-                # Copy to avoid aliasing so deltas are computed correctly
-                current_tracker_T = mapper.tracker.get_T().copy()
-            except Exception as e:
-                print(f"\n⚠️ Tracker read error: {e}")
-                time.sleep(0.1)
-                continue
-            
-            # Compute target pose
-            try:
-                target_pose = mapper.compute_target_pose(current_tracker_T)
-            except Exception as e:
-                print(f"\n⚠️ Pose computation error: {e}")
-                time.sleep(0.1)
-                continue
-            
-            # Fast workspace check
-            in_workspace, ws_reason = mapper.is_pose_within_workspace(target_pose)
-            
-            if not in_workspace:
-                # Outside user-defined workspace
-                if not mapper._was_outside_workspace:
-                    safety_violations += 1
-                    print(f"\n🛑 Workspace limit: {ws_reason}")
-                    print("   Arm will stop until you return to workspace")
+            # Process each arm independently
+            for label, mapper in mappers.items():
+                try:
+                    # Get current tracker pose
+                    current_tracker_T = mapper.tracker.get_T().copy()
                     
-                    # Stop the arm by setting mode to position mode (mode 0)
-                    try:
-                        mapper.adapter.arm.set_mode(0)
-                        mapper.adapter.arm.set_state(4)  # State 4 = stop
-                    except Exception:
-                        pass
-                
-                mapper._was_outside_workspace = True
-                mapper._reengagement_counter = 0  # Reset re-engagement counter
-                
-                loop_count += 1
-                elapsed = time.time() - loop_start
-                sleep_time = (1.0 / rate_hz) - elapsed
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-                continue
-            
-            # Check IK reachability (every frame - fast enough for real-time)
-            is_reachable, ik_reason = mapper.is_pose_reachable(target_pose)
-            
-            if not is_reachable:
-                # Pose is kinematically unreachable - silently skip (common at workspace edges)
-                # Don't spam errors, don't stop servo mode, just don't update
-                loop_count += 1
-                elapsed = time.time() - loop_start
-                sleep_time = (1.0 / rate_hz) - elapsed
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-                continue
-            
-            # We're back in workspace - check if we need smooth re-engagement
-            pose_to_send = target_pose
-            
-            if mapper._was_outside_workspace:
-                # Just re-entered workspace - restart servo mode and use smooth re-engagement
-                if mapper._reengagement_counter == 0:
-                    # First frame back in workspace - re-enable servo mode
-                    print(f"\n🔄 Re-entering workspace, restarting servo mode...")
-                    try:
-                        mapper.adapter.arm.set_mode(0)  # Position mode first
-                        mapper.adapter.arm.set_state(0)  # Ready state
-                        time.sleep(0.05)  # Brief pause for state transition
-                        mapper.adapter.arm.set_mode(1)  # Back to servo mode
-                        mapper.adapter.arm.set_state(0)  # Ready state
-                        print(f"🔄 Servo mode restarted, re-engaging smoothly ({mapper._reengagement_steps} steps)...")
-                    except Exception as e:
-                        print(f"⚠️ Failed to restart servo mode: {e}")
-                
-                if mapper._reengagement_counter < mapper._reengagement_steps:
-                    pose_to_send = mapper.compute_reengagement_pose(target_pose)
-                    mapper._reengagement_counter += 1
-                else:
-                    # Re-engagement complete
-                    mapper._was_outside_workspace = False
-                    print(f"\n✅ Re-engagement complete, resuming normal control")
-            
-            # Send streaming command
-            try:
-                success = mapper.send_pose_streaming(pose_to_send, speed_mm_s)
-                
-                if success:
-                    last_safe_pose = pose_to_send
-                    mapper._last_valid_pose = pose_to_send  # Track for re-engagement
+                    # Compute target pose
+                    target_pose = mapper.compute_target_pose(current_tracker_T)
                     
-                    # Print status every 100 frames
-                    if loop_count % 100 == 0:
-                        status_icon = "🔄" if mapper._was_outside_workspace else "✅"
-                        print(f"\r{status_icon} Pos: [{pose_to_send['x']:.1f}, {pose_to_send['y']:.1f}, "
-                              f"{pose_to_send['z']:.1f}] mm | "
-                              f"Ori: [{pose_to_send['roll']:.1f}, {pose_to_send['pitch']:.1f}, "
-                              f"{pose_to_send['yaw']:.1f}]° | "
-                              f"Violations: {safety_violations}", 
-                              end='', flush=True)
-                else:
-                    # Command failed, but don't spam errors - just skip this frame
-                    pass
+                    # Fast workspace check
+                    in_workspace, ws_reason = mapper.is_pose_within_workspace(target_pose)
                     
-            except Exception as e:
-                print(f"\n⚠️ Motion execution error: {e}")
+                    if not in_workspace:
+                        # Outside user-defined workspace
+                        if not mapper._was_outside_workspace:
+                            safety_violations[label] += 1
+                            print(f"\n🛑 [{label}] Workspace limit: {ws_reason}")
+                            print(f"   {label} arm will stop until you return to workspace")
+                            
+                            # Stop the arm by setting mode to position mode (mode 0)
+                            try:
+                                mapper.adapter.arm.set_mode(0)
+                                mapper.adapter.arm.set_state(4)  # State 4 = stop
+                            except Exception:
+                                pass
+                        
+                        mapper._was_outside_workspace = True
+                        mapper._reengagement_counter = 0  # Reset re-engagement counter
+                        continue  # Skip to next arm
+                    
+                    # Check IK reachability (every frame - fast enough for real-time)
+                    is_reachable, ik_reason = mapper.is_pose_reachable(target_pose)
+                    
+                    if not is_reachable:
+                        # Pose is kinematically unreachable - silently skip (common at workspace edges)
+                        # Don't spam errors, don't stop servo mode, just don't update
+                        continue  # Skip to next arm
+                    
+                    # We're back in workspace - check if we need smooth re-engagement
+                    pose_to_send = target_pose
+                    
+                    if mapper._was_outside_workspace:
+                        # Just re-entered workspace - restart servo mode and use smooth re-engagement
+                        if mapper._reengagement_counter == 0:
+                            # First frame back in workspace - re-enable servo mode
+                            print(f"\n🔄 [{label}] Re-entering workspace, restarting servo mode...")
+                            try:
+                                mapper.adapter.arm.set_mode(0)  # Position mode first
+                                mapper.adapter.arm.set_state(0)  # Ready state
+                                time.sleep(0.05)  # Brief pause for state transition
+                                mapper.adapter.arm.set_mode(1)  # Back to servo mode
+                                mapper.adapter.arm.set_state(0)  # Ready state
+                                print(f"🔄 [{label}] Servo mode restarted, re-engaging smoothly ({mapper._reengagement_steps} steps)...")
+                            except Exception as e:
+                                print(f"⚠️ [{label}] Failed to restart servo mode: {e}")
+                        
+                        if mapper._reengagement_counter < mapper._reengagement_steps:
+                            pose_to_send = mapper.compute_reengagement_pose(target_pose)
+                            mapper._reengagement_counter += 1
+                        else:
+                            # Re-engagement complete
+                            mapper._was_outside_workspace = False
+                            print(f"\n✅ [{label}] Re-engagement complete, resuming normal control")
+                    
+                    # Send streaming command
+                    success = mapper.send_pose_streaming(pose_to_send, speed_mm_s)
+                    
+                    if success:
+                        mapper._last_valid_pose = pose_to_send  # Track for re-engagement
+                        
+                        # Print status every 100 frames
+                        if loop_count % 100 == 0:
+                            status_icon = "🔄" if mapper._was_outside_workspace else "✅"
+                            violations_str = ", ".join([f"{l}:{v}" for l, v in safety_violations.items()])
+                            print(f"\r{status_icon} [{label}] Pos: [{pose_to_send['x']:.1f}, {pose_to_send['y']:.1f}, "
+                                  f"{pose_to_send['z']:.1f}] mm | "
+                                  f"Ori: [{pose_to_send['roll']:.1f}, {pose_to_send['pitch']:.1f}, "
+                                  f"{pose_to_send['yaw']:.1f}]° | "
+                                  f"Violations: {violations_str}", 
+                                  end='', flush=True)
+                    
+                except Exception as e:
+                    print(f"\n⚠️ [{label}] Error: {e}")
+                    continue  # Skip to next arm
             
             loop_count += 1
             
@@ -766,14 +867,13 @@ def run_teleoperation():
     finally:
         # Clean shutdown
         foot_pedal.stop()
-        mapper.shutdown()
+        for mapper in mappers.values():
+            mapper.shutdown()
         
         print(f"\n📊 Session statistics:")
         print(f"   Total frames: {loop_count}")
-        print(f"   Commands sent: {loop_count - safety_violations}")
-        print(f"   Safety violations: {safety_violations}")
-        if loop_count > 0:
-            print(f"   Success rate: {100.0 * (1 - safety_violations/loop_count):.1f}%")
+        for label, violations in safety_violations.items():
+            print(f"   {label} arm violations: {violations}")
     
     return 0
 
@@ -783,10 +883,14 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="Vive Tracker teleoperation for xArm robot"
+        description="Vive Tracker teleoperation for xArm robot (unimanual & bimanual)"
     )
-    parser.add_argument('--xarm-ip', default=os.environ.get('XARM_IP', '192.168.1.214'),
-                       help='xArm IP address (default: 192.168.1.214)')
+    parser.add_argument('--mode', choices=['left', 'right', 'both'], default='right',
+                       help='Control mode: left arm only, right arm only, or both arms (default: right)')
+    parser.add_argument('--left-ip', default=os.environ.get('XARM_IP_LEFT', '192.168.1.111'),
+                       help='Left xArm IP address (default: 192.168.1.111)')
+    parser.add_argument('--right-ip', default=os.environ.get('XARM_IP_RIGHT', '192.168.1.214'),
+                       help='Right xArm IP address (default: 192.168.1.214)')
     parser.add_argument('--position-scale', type=float,
                        default=float(os.environ.get('VIVE_POSITION_SCALE', '1.0')),
                        help='Position scaling factor (default: 1.0)')
@@ -794,22 +898,23 @@ def main():
                        default=float(os.environ.get('VIVE_ROTATION_SCALE', '1.0')),
                        help='Rotation scaling factor (default: 1.0)')
     parser.add_argument('--rate', type=int,
-                       default=int(os.environ.get('TELEOP_RATE_HZ', '30')),
-                       help='Control loop rate in Hz (default: 30)')
+                       default=int(os.environ.get('TELEOP_RATE_HZ', '100')),
+                       help='Control loop rate in Hz (default: 100)')
     parser.add_argument('--speed', type=int,
-                       default=int(os.environ.get('TELEOP_SPEED', '200')),
-                       help='Motion speed in mm/s (default: 200)')
+                       default=int(os.environ.get('TELEOP_SPEED', '100')),
+                       help='Motion speed in mm/s (default: 100)')
     
     args = parser.parse_args()
     
     # Set environment variables from args
-    os.environ['XARM_IP'] = args.xarm_ip
+    os.environ['XARM_IP_LEFT'] = args.left_ip
+    os.environ['XARM_IP_RIGHT'] = args.right_ip
     os.environ['VIVE_POSITION_SCALE'] = str(args.position_scale)
     os.environ['VIVE_ROTATION_SCALE'] = str(args.rotation_scale)
     os.environ['TELEOP_RATE_HZ'] = str(args.rate)
     os.environ['TELEOP_SPEED'] = str(args.speed)
     
-    return run_teleoperation()
+    return run_teleoperation(mode=args.mode)
 
 
 if __name__ == '__main__':
