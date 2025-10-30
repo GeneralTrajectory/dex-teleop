@@ -1,47 +1,45 @@
 # Documentation Index
 
-This directory contains detailed documentation for the dex-teleop system.
+This directory contains all documentation for the dex-teleop system.
 
-## Vive Tracker Teleoperation
+## Main Documentation Files
 
-### User Guides
-- **[QUICKSTART.md](QUICKSTART.md)** - Step-by-step setup and usage
-- **[README_TELEOP.md](README_TELEOP.md)** - Technical documentation and configuration
+1. **[QUICKSTART.md](QUICKSTART.md)** - Complete user guide
+   - Vive Tracker → xArm teleoperation
+   - Bimanual xArm control
+   - Quest Hand Tracking → Inspire Hands
+   - Setup, usage, and basic troubleshooting
 
-### Implementation Details
-- **[IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)** - Architecture overview and design decisions
-- **[SYSTEM_DIAGRAM.md](SYSTEM_DIAGRAM.md)** - Visual diagrams and control flow charts
-- **[INDEX.md](INDEX.md)** - Complete file reference guide
+2. **[TECHNICAL.md](TECHNICAL.md)** - Technical reference
+   - Architecture overview
+   - Configuration guide
+   - Performance tuning guides
+   - Advanced topics
 
-### Performance & Tuning
-- **[PERFORMANCE_TUNING.md](PERFORMANCE_TUNING.md)** - Latency optimization and performance tuning
-- **[REENGAGEMENT_TUNING.md](REENGAGEMENT_TUNING.md)** - Smooth re-engagement after workspace violations
+3. **[INSPIRE_TELEOP_LESSONS.md](INSPIRE_TELEOP_LESSONS.md)** - Quest troubleshooting
+   - Lessons learned from achieving real-time control
+   - Performance bottleneck diagnosis
+   - Critical optimizations for low-latency operation
 
-### Advanced Features
-- **[BIMANUAL_USAGE.md](BIMANUAL_USAGE.md)** - Bimanual control with two Vive trackers
-
-## Quest Hand Tracking
-
-### User Guides
-- **[QUEST_HAND_GUIDE.md](QUEST_HAND_GUIDE.md)** - Complete usage guide for Quest hand tracking
-
-### Implementation Details
-- **[QUEST_IMPLEMENTATION_SUMMARY.md](QUEST_IMPLEMENTATION_SUMMARY.md)** - Technical summary and lessons learned
-
-## Quick Reference
+## Quick Navigation
 
 **Getting Started:**
-1. Read `QUICKSTART.md` for Vive tracker setup
-2. Read `QUEST_HAND_GUIDE.md` for Quest hand tracking setup
-
-**Understanding the System:**
-1. Read `IMPLEMENTATION_SUMMARY.md` for architecture
-2. Read `SYSTEM_DIAGRAM.md` for visual understanding
+- Read [QUICKSTART.md](QUICKSTART.md) first
 
 **Performance Issues:**
-1. Read `PERFORMANCE_TUNING.md` for Vive tracker optimization
-2. Read `QUEST_IMPLEMENTATION_SUMMARY.md` for Quest hand tracking optimization
+- Quest hands slow/laggy: See [INSPIRE_TELEOP_LESSONS.md](INSPIRE_TELEOP_LESSONS.md)
+- Vive tracker tuning: See [TECHNICAL.md](TECHNICAL.md#performance-tuning)
 
-**Advanced Usage:**
-1. Read `BIMANUAL_USAGE.md` for dual-arm control
-2. Read `REENGAGEMENT_TUNING.md` for smooth motion tuning
+**Configuration:**
+- All environment variables: See [TECHNICAL.md](TECHNICAL.md#configuration)
+- Quest setup script: Use `../setup_quest_teleop.sh`
+
+## File Structure
+
+```
+notes/
+├── QUICKSTART.md              # User guide (start here)
+├── TECHNICAL.md               # Technical reference
+├── INSPIRE_TELEOP_LESSONS.md  # Quest troubleshooting
+└── README.md                  # This file
+```

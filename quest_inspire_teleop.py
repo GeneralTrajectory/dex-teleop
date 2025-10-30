@@ -337,6 +337,9 @@ class HandSender:
 
 def run_quest_hand_teleop():
     """Main control loop for Quest hand tracking teleoperation."""
+
+    print("Get into a ready position...")
+    time.sleep(6)
     
     print("="*60)
     print("🎮 Quest Hand Tracking → Inspire Hands")
@@ -364,7 +367,7 @@ def run_quest_hand_teleop():
         
         # Open all fingers to start
         print("\n🖐️ Opening all fingers...")
-        speed_default = int(os.environ.get('INSPIRE_SPEED', '900'))
+        speed_default = int(os.environ.get('INSPIRE_SPEED', '1000'))
         for hand in hands.values():
             hand.open_all_fingers()
             # Balance responsiveness and stability
@@ -394,9 +397,7 @@ def run_quest_hand_teleop():
     
     loop_count = 0
     # Tunables via env
-    use_median = int(os.environ.get('QUEST_USE_MEDIAN', '1')) == 1
-    median_win = int(os.environ.get('QUEST_MEDIAN_WIN', '3'))
-    
+
     # EMA tunables
     ema_slow = float(os.environ.get('QUEST_EMA_SLOW', '0.5'))   # alpha for small changes
     ema_bypass = int(os.environ.get('QUEST_EMA_BYPASS', '8'))   # bypass threshold (counts)
@@ -407,11 +408,7 @@ def run_quest_hand_teleop():
         'right': AngleEMAFilter(alpha_slow=ema_slow, bypass_threshold=ema_bypass),
     }
     median_filters = None
-    if use_median:
-        median_filters = {
-            'left': AngleMedianFilter(window_size=median_win),
-            'right': AngleMedianFilter(window_size=median_win),
-        }
+
     # Last sent angles per hand
     last_sent = {
         'left': None,
