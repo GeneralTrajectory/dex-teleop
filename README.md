@@ -38,10 +38,21 @@ This repository implements a safe, intuitive teleoperation interface for control
   - Background UDP receiver and async command sending
 - **Usage**: `python quest_inspire_teleop.py`
 
+### ✅ Phase 4: Data Recording (COMPLETE)
+
+- **Control system**: Unified recorder for xArm + Inspire Hands
+- **Features**:
+  - Pedal-triggered start/stop recording
+  - Synchronized capture (100Hz xArm, 60Hz Inspire)
+  - HDF5 format for ML pipelines
+  - Ephemeral mode for testing
+  - Replay functionality
+- **Usage**: `python teleop_recorder.py record --subject S1 --task pick`
+
 ### 🚧 Future Phases
 
-- **Phase 4**: Data recording for imitation learning
 - **Phase 5**: Visual feedback and workspace visualization
+- **Phase 6**: Force feedback integration
 
 ## Quick Start
 
@@ -74,23 +85,22 @@ python test_vive_teleop.py
 
 ### Basic Usage
 
+**Teleoperation only:**
 ```bash
-# 1. Ensure SteamVR is running (green icons for base stations + tracker)
-# 2. Move arm to home position
-python move_arm_to_home.py
-
-# 3. Start teleoperation
-export XARM_IP="192.168.1.214"
-python vive_teleop_xarm.py
-
-# Follow on-screen prompts:
-#   - Arm moves to home automatically
-#   - 3-second countdown for calibration
-#   - Hold tracker steady, then start moving
-#   - Press Ctrl+C to stop
+export XARM_IP_RIGHT="192.168.1.214"
+python vive_teleop_xarm.py --mode right
 ```
 
-See [notes/QUICKSTART.md](notes/QUICKSTART.md) for detailed step-by-step instructions.
+**Record demonstrations:**
+```bash
+source setup_recorder.sh
+python teleop_recorder.py record --subject S1 --task pick
+
+# Press 'b' to start → perform demo → press 'b' to stop
+```
+
+See [notes/QUICKSTART.md](notes/QUICKSTART.md) for detailed instructions.
+See [RECORDER.md](RECORDER.md) for recording guide.
 
 ## Repository Structure
 
@@ -102,22 +112,34 @@ dex-teleop/
 │   ├── fairmotion_ops/        # Transformation utilities
 │   └── fairmotion_vis/        # OpenGL visualization
 │
-├── vive_teleop_xarm.py        # Main teleoperation script (Vive → xArm) ⭐
-├── quest_inspire_teleop.py    # Quest hand tracking → Inspire Hands ⭐
+├── vive_teleop_xarm.py        # Vive → xArm teleoperation ⭐
+├── quest_inspire_teleop.py    # Quest → Inspire Hands teleoperation ⭐
+├── teleop_recorder.py         # Unified recorder (xArm + Inspire) ⭐
+├── recorder_lib/              # Recording library
+│   ├── state_machine.py       # Recorder orchestrator
+│   ├── writer.py              # HDF5 data writer
+│   ├── xarm_worker.py         # xArm recording worker
+│   ├── inspire_worker.py      # Inspire recording worker
+│   ├── pedal.py               # Toggle pedal with debouncing
+│   └── replay.py              # Replay functionality
+├── load_recording.py          # Data loader utility
 ├── quest_hand_receiver.py     # UDP receiver for Quest hand data
 ├── recv_rotations.py          # Simple Quest data test receiver
-├── test_vive_teleop.py        # Connectivity test suite
-├── test_safety_features.py    # Safety validation suite
+├── test_vive_teleop.py        # Vive connectivity tests
+├── test_safety_features.py    # Safety validation tests
+├── test_recorder.py           # Recorder tests
 ├── move_arm_to_home.py        # Helper: position arm before teleop
-├── launch_teleop.sh           # Convenience launcher
+├── setup_recorder.sh          # Recorder environment setup
+├── launch_teleop.sh           # Vive teleop launcher
 │
+├── data/                      # Recording output directory
 ├── README.md                  # This file
+├── RECORDER_README.md         # Recording system guide
 ├── notes/                     # Detailed documentation
-│   ├── QUICKSTART.md          # Step-by-step usage guide
-│   ├── BIMANUAL_USAGE.md      # Bimanual control guide
-│   ├── QUEST_HAND_GUIDE.md    # Quest hand tracking guide
-│   └── ...                    # See notes/README.md for full index
-└── ...
+│   ├── QUICKSTART.md          # Complete user guide
+│   ├── TECHNICAL.md           # Technical reference
+│   └── INSPIRE_TELEOP_LESSONS.md  # Quest troubleshooting
+└── Vive_Tracker/              # Vive interface library
 ```
 
 ## Key Features
@@ -147,10 +169,10 @@ dex-teleop/
 
 ## Documentation
 
-- **[notes/QUICKSTART.md](notes/QUICKSTART.md)** - Complete user guide (Vive + Quest)
+- **[notes/QUICKSTART.md](notes/QUICKSTART.md)** - Complete user guide (Vive + Quest + Recording)
+- **[RECORDER.md](RECORDER.md)** - Recording system guide (NEW)
 - **[notes/TECHNICAL.md](notes/TECHNICAL.md)** - Technical reference and tuning
 - **[notes/INSPIRE_TELEOP_LESSONS.md](notes/INSPIRE_TELEOP_LESSONS.md)** - Quest troubleshooting guide
-- **[notes/README.md](notes/README.md)** - Documentation index
 - **[Vive_Tracker/README.md](Vive_Tracker/README.md)** - Vive Tracker setup and usage
 
 ## Safety Notes
@@ -317,7 +339,8 @@ For issues:
 - [x] Documentation (quick start, technical, implementation)
 - [x] Bimanual teleoperation (both arms simultaneously)
 - [x] Dexterous gripper control (Quest hand tracking → Inspire Hands)
-- [ ] Data recording (trajectory + camera logging)
+- [x] Data recording (synchronized xArm + Inspire capture, HDF5 format)
+- [ ] Camera integration (synchronized RGB-D frames)
 - [ ] Visual feedback (Open3D real-time visualization)
 - [ ] Force feedback (haptic feedback on collisions)
 

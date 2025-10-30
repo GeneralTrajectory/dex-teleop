@@ -311,6 +311,64 @@ right joints=21 tracked=21/21 dilation={'Thumb': 0.3, 'Index': 0.8, ...}
 
 ---
 
+---
+
+## Recording Demonstrations
+
+### Prerequisites
+Install h5py for data recording:
+```bash
+pip install h5py
+```
+
+### Record a Demonstration
+
+**Setup environment:**
+```bash
+cd /home/joshua/Research/dex-teleop
+source setup_recorder.sh
+```
+
+**Start recording:**
+```bash
+python teleop_recorder.py record --subject S1 --task pick --notes "red cube"
+```
+
+**Workflow:**
+1. System initializes all devices (Vive, Quest, xArms, Inspire Hands)
+2. Press 'b' (foot pedal) → Arms home, then recording starts
+3. Perform demonstration (teleoperate both arms + hands)
+4. Press 'b' again → Recording stops and saves
+
+**Ephemeral mode (testing, no save):**
+```bash
+python teleop_recorder.py record --ephemeral
+```
+
+### List Recordings
+```bash
+python teleop_recorder.py list
+```
+
+### Validate Recording
+```bash
+python teleop_recorder.py validate --trial-id 20250130_143022
+```
+
+### Replay Recording
+
+**Dry-run (no robot motion, just stats):**
+```bash
+python teleop_recorder.py replay --trial-id 20250130_143022 --dry-run
+```
+
+**Live replay:**
+```bash
+python teleop_recorder.py replay --trial-id 20250130_143022 --speed 0.5
+```
+
+---
+
 ## Next Steps
 
 - **Advanced configuration**: See [TECHNICAL.md](TECHNICAL.md)

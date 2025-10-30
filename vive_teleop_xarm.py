@@ -892,7 +892,7 @@ def main():
     parser.add_argument('--right-ip', default=os.environ.get('XARM_IP_RIGHT', '192.168.1.214'),
                        help='Right xArm IP address (default: 192.168.1.214)')
     parser.add_argument('--position-scale', type=float,
-                       default=float(os.environ.get('VIVE_POSITION_SCALE', '1.0')),
+                       default=float(os.environ.get('VIVE_POSITION_SCALE', '1.6')),
                        help='Position scaling factor (default: 1.0)')
     parser.add_argument('--rotation-scale', type=float,
                        default=float(os.environ.get('VIVE_ROTATION_SCALE', '1.0')),

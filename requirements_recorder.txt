@@ -1,0 +1,15 @@
+# Teleoperation Recorder Dependencies
+# Install with: pip install -r requirements_recorder.txt
+
+# Core recording
+h5py>=3.8.0          # HDF5 file format for ML pipelines
+numpy>=1.21.0        # Numerical arrays
+
+# Already installed (from other components)
+# scipy                # Rotation mathematics (from vive_teleop)
+# openvr               # Vive tracker (from vive_teleop)
+# xarm-python-sdk      # xArm control (from vive_teleop)
+# pymodbus             # Inspire Hand (from quest_inspire_teleop)
+
+
+
