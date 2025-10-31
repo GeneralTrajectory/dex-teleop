@@ -9,6 +9,9 @@ Usage:
     # Record a demonstration
     python teleop_recorder.py record --subject S1 --task pick --notes "red cube"
     
+    # Record at half speed
+    python teleop_recorder.py record --ephemeral --arms both --speed 0.5
+    
     # Ephemeral mode (testing, no save)
     python teleop_recorder.py record --ephemeral
     
@@ -51,7 +54,8 @@ def cmd_record(args):
         subject=args.subject,
         task=args.task,
         notes=args.notes,
-        arms=args.arms
+        arms=args.arms,
+        speed_scale=args.speed
     )
     return recorder.run()
 
@@ -107,6 +111,8 @@ def main():
                               help='Discard data after stop (testing mode)')
     record_parser.add_argument('--arms', choices=['left', 'right', 'both'], default='both',
                               help='Which arm(s) to use: left, right, or both (default: both)')
+    record_parser.add_argument('--speed', type=float, default=1.0,
+                              help='Teleoperation speed scale (default: 1.0, e.g., 0.5 = half speed)')
     record_parser.set_defaults(func=cmd_record)
     
     # List command

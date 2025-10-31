@@ -56,7 +56,8 @@ class RecorderOrchestrator:
     
     def __init__(self, ephemeral: bool = False, subject: Optional[str] = None,
                  task: Optional[str] = None, notes: Optional[str] = None,
-                 arms: str = 'both'):
+                 arms: str = 'both',
+                 speed_scale: float = 1.0):
         """
         Initialize the recorder orchestrator.
         
@@ -66,12 +67,14 @@ class RecorderOrchestrator:
             task: Task name
             notes: Session notes
             arms: Which arm(s) to use ('left', 'right', or 'both')
+            speed_scale: Teleoperation speed multiplier (default: 1.0, e.g., 0.5 = half speed)
         """
         self.ephemeral = ephemeral
         self.subject = subject
         self.task = task
         self.notes = notes
         self.arms = arms  # 'left', 'right', or 'both'
+        self.speed_scale = speed_scale
         
         # Determine active arms
         self.active_arms = []
@@ -228,8 +231,8 @@ class RecorderOrchestrator:
                 xarm_ip=left_ip,
                 tracker=left_tracker,
                 arm_label="left",
-                position_scale=1.0,
-                rotation_scale=1.0
+                position_scale=self.speed_scale,
+                rotation_scale=self.speed_scale
             )
             print("✅ Left xArm mapper initialized")
             # Prime controller readiness once (safe, no motion)
@@ -266,8 +269,8 @@ class RecorderOrchestrator:
                 xarm_ip=right_ip,
                 tracker=right_tracker,
                 arm_label="right",
-                position_scale=1.0,
-                rotation_scale=1.0
+                position_scale=self.speed_scale,
+                rotation_scale=self.speed_scale
             )
             print("✅ Right xArm mapper initialized")
             # Prime controller readiness once (safe, no motion)
@@ -590,7 +593,8 @@ class RecorderOrchestrator:
     def _run_xarm_teleop_step(self):
         """Run one step of xArm teleoperation (called at ~60Hz during recording)."""
         rate_hz = 100  # xArm servo mode rate
-        speed_mm_s = 100
+        # Scale speed proportionally with speed_scale
+        speed_mm_s = int(100 * self.speed_scale)
         
         for label, mapper in self.xarm_mappers.items():
             try:
