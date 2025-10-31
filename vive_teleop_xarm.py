@@ -35,6 +35,7 @@ Usage:
 import sys
 import time
 import os
+import math
 import numpy as np
 from pathlib import Path
 from typing import Dict, Tuple, Optional
@@ -163,6 +164,11 @@ class ViveToXArmMapper:
         # Store scaling factors
         self.position_scale = position_scale
         self.rotation_scale = rotation_scale
+        # Per-axis position fine-tuning (multiplied after global scale)
+        # Defaults to 1.0 so existing behavior is unchanged
+        self.position_scale_x = float(os.environ.get('VIVE_POSITION_SCALE_X', '1.0'))
+        self.position_scale_y = float(os.environ.get('VIVE_POSITION_SCALE_Y', '1.0'))
+        self.position_scale_z = float(os.environ.get('VIVE_POSITION_SCALE_Z', '1.5'))
         # Per-axis rotation fine-tuning (multiplied after global scale)
         # Defaults to 1.0 so existing behavior is unchanged
         self.rotation_scale_roll = float(os.environ.get('VIVE_ROTATION_SCALE_ROLL', '1.0'))
@@ -174,6 +180,16 @@ class ViveToXArmMapper:
         self.arm_home_pose = None  # Dict with {x,y,z,roll,pitch,yaw}
         self.base_T_tcp_home = None  # 4x4 arm pose at calibration
         
+        # Adaptive pose filter (EMA + clamp) to suppress spikes
+        self.ema_alpha_slow = float(os.environ.get('POSE_EMA_SLOW', '0.5'))
+        self.ema_bypass_mm = float(os.environ.get('POSE_EMA_BYPASS_MM', '15'))
+        self.ema_bypass_deg = float(os.environ.get('POSE_EMA_BYPASS_DEG', '8'))
+        self.clamp_mm = float(os.environ.get('POSE_CLAMP_MM', '30'))
+        self.clamp_deg = float(os.environ.get('POSE_CLAMP_DEG', '12'))
+        self._last_filtered_pose = None  # Persist filtered pose across frames
+        self._pf_debug = os.environ.get('POSE_FILTER_DEBUG', '0').strip().lower() in ('1','true','yes','y')
+        self._pf_debug_n = 0
+
         # Workspace limits (mm) - Expanded X-axis for full table reach
         self.workspace_limits = {
             'x': (100.0, 700.0),    # Extended forward reach for full table coverage
@@ -298,8 +314,12 @@ class ViveToXArmMapper:
             -pos_delta_m[2]   # xArm Z = -tracker Z (up/down)
         ], dtype=np.float32)
         
-        # Scale and convert to mm
-        pos_delta_scaled_mm = pos_delta_remapped * self.position_scale * 1000.0  # m -> mm
+        # Apply per-axis fine-tune and global scale, then convert to mm
+        pos_delta_scaled_mm = np.array([
+            pos_delta_remapped[0] * self.position_scale_x,
+            pos_delta_remapped[1] * self.position_scale_y,
+            pos_delta_remapped[2] * self.position_scale_z,
+        ], dtype=np.float32) * self.position_scale * 1000.0  # m -> mm
         
         # Extract rotation delta and scale
         R_delta = tracker_delta_T[:3, :3]
@@ -345,6 +365,93 @@ class ViveToXArmMapper:
         }
         
         return target_pose
+
+    def apply_pose_filter(self, pose_dict: Dict[str, float], is_reengaging: bool = False) -> Dict[str, float]:
+        """Apply adaptive EMA smoothing and spike clamping to target pose.
+
+        Args:
+            pose_dict: Target pose to send {x,y,z,roll,pitch,yaw}
+            is_reengaging: True when coming back from workspace violation (skip EMA, clamp only)
+
+        Returns:
+            Filtered pose dict
+        """
+        # First valid frame: initialize and return raw pose
+        if self._last_filtered_pose is None:
+            self._last_filtered_pose = {
+                'x': float(pose_dict['x']), 'y': float(pose_dict['y']), 'z': float(pose_dict['z']),
+                'roll': float(pose_dict['roll']), 'pitch': float(pose_dict['pitch']), 'yaw': float(pose_dict['yaw'])
+            }
+            return pose_dict
+
+        # Helper to wrap angle delta to [-180, 180]
+        def wrap_delta(angle_deg):
+            d = float(angle_deg)
+            while d > 180.0:
+                d -= 360.0
+            while d < -180.0:
+                d += 360.0
+            return d
+        
+        # Compute deltas from last filtered pose
+        dx = float(pose_dict['x'] - self._last_filtered_pose['x'])
+        dy = float(pose_dict['y'] - self._last_filtered_pose['y'])
+        dz = float(pose_dict['z'] - self._last_filtered_pose['z'])
+        droll = wrap_delta(pose_dict['roll'] - self._last_filtered_pose['roll'])
+        dpitch = wrap_delta(pose_dict['pitch'] - self._last_filtered_pose['pitch'])
+        dyaw = wrap_delta(pose_dict['yaw'] - self._last_filtered_pose['yaw'])
+
+        delta_pos_mm = math.sqrt(dx*dx + dy*dy + dz*dz)
+        delta_rot_deg = math.sqrt(droll*droll + dpitch*dpitch + dyaw*dyaw)
+
+        # Clamp extreme spikes to maximum per-frame delta (position and rotation separately)
+        pos_scale = 1.0
+        rot_scale = 1.0
+        if delta_pos_mm > self.clamp_mm:
+            pos_scale = self.clamp_mm / max(delta_pos_mm, 1e-6)
+        if delta_rot_deg > self.clamp_deg:
+            rot_scale = self.clamp_deg / max(delta_rot_deg, 1e-6)
+
+        clamped = (pos_scale < 1.0) or (rot_scale < 1.0)
+        if clamped:
+            dx *= pos_scale; dy *= pos_scale; dz *= pos_scale
+            droll *= rot_scale; dpitch *= rot_scale; dyaw *= rot_scale
+
+        clamped_pose = {
+            'x': self._last_filtered_pose['x'] + dx,
+            'y': self._last_filtered_pose['y'] + dy,
+            'z': self._last_filtered_pose['z'] + dz,
+            'roll': self._last_filtered_pose['roll'] + droll,
+            'pitch': self._last_filtered_pose['pitch'] + dpitch,
+            'yaw': self._last_filtered_pose['yaw'] + dyaw,
+        }
+
+        # If re-engaging or big move, bypass EMA (but keep clamping)
+        bypass = is_reengaging or (delta_pos_mm > self.ema_bypass_mm) or (delta_rot_deg > self.ema_bypass_deg)
+        if bypass:
+            self._last_filtered_pose = clamped_pose
+            if self._pf_debug:
+                self._pf_debug_n += 1
+                if (self._pf_debug_n % 100) == 0:
+                    print(f"PF[{self.arm_label}] bypass posΔ={delta_pos_mm:.1f}mm rotΔ={delta_rot_deg:.1f}° clamp={clamped}")
+            return clamped_pose
+
+        # Otherwise apply EMA smoothing for micro-jitter
+        a = max(0.0, min(1.0, self.ema_alpha_slow))
+        filtered = {
+            'x': (1.0 - a) * self._last_filtered_pose['x'] + a * clamped_pose['x'],
+            'y': (1.0 - a) * self._last_filtered_pose['y'] + a * clamped_pose['y'],
+            'z': (1.0 - a) * self._last_filtered_pose['z'] + a * clamped_pose['z'],
+            'roll': (1.0 - a) * self._last_filtered_pose['roll'] + a * clamped_pose['roll'],
+            'pitch': (1.0 - a) * self._last_filtered_pose['pitch'] + a * clamped_pose['pitch'],
+            'yaw': (1.0 - a) * self._last_filtered_pose['yaw'] + a * clamped_pose['yaw'],
+        }
+        self._last_filtered_pose = filtered
+        if self._pf_debug:
+            self._pf_debug_n += 1
+            if (self._pf_debug_n % 100) == 0:
+                print(f"PF[{self.arm_label}] ema posΔ={delta_pos_mm:.1f}mm rotΔ={delta_rot_deg:.1f}° clamp={clamped}")
+        return filtered
     
     def is_pose_within_workspace(self, pose_dict: Dict[str, float]) -> Tuple[bool, str]:
         """
@@ -827,6 +934,12 @@ def run_teleoperation(mode: str = 'right'):
                             mapper._was_outside_workspace = False
                             print(f"\n✅ [{label}] Re-engagement complete, resuming normal control")
                     
+                    # Apply adaptive smoothing/clamping to mitigate spikes
+                    pose_to_send = mapper.apply_pose_filter(
+                        pose_to_send,
+                        is_reengaging=mapper._was_outside_workspace
+                    )
+                    
                     # Send streaming command
                     success = mapper.send_pose_streaming(pose_to_send, speed_mm_s)
                     
@@ -892,7 +1005,7 @@ def main():
     parser.add_argument('--right-ip', default=os.environ.get('XARM_IP_RIGHT', '192.168.1.214'),
                        help='Right xArm IP address (default: 192.168.1.214)')
     parser.add_argument('--position-scale', type=float,
-                       default=float(os.environ.get('VIVE_POSITION_SCALE', '1.6')),
+                       default=float(os.environ.get('VIVE_POSITION_SCALE', '1.5')),
                        help='Position scaling factor (default: 1.0)')
     parser.add_argument('--rotation-scale', type=float,
                        default=float(os.environ.get('VIVE_ROTATION_SCALE', '1.0')),

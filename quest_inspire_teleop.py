@@ -153,21 +153,24 @@ class HandTrackingMapper:
         Convert thumb opposition angle to Inspire Hand thumb rotate angle.
         
         Args:
-            opposition_deg: Opposition angle ~90° (opposed) to ~10° (parallel), or None
+            opposition_deg: Opposition angle in degrees from Quest tracking
+            - Lower angle = thumb extended/open (parallel to fingers)
+            - Higher angle = thumb opposed/closed (pinching position)
             
         Returns:
-            Inspire angle 0 (parallel) to 1000 (opposed)
+            Inspire angle 0 (rotated out/extended) to 1000 (rotated in/opposed)
+            
+        Note: Mapping is inverted - when Quest reports higher angle (more opposed),
+        Inspire rotates out (lower angle). When Quest reports lower angle (extended),
+        Inspire rotates in (higher angle).
         """
-        # Use calibrated range (defaults derived from user observation)
-        omin = float(os.environ.get('QUEST_TOPP_MIN', '90.0'))
-        omax = float(os.environ.get('QUEST_TOPP_MAX', '100.0'))
+        # Use calibrated range based on observed Quest tracking values
+        omin = float(os.environ.get('QUEST_TOPP_MIN', '93.0'))
+        omax = float(os.environ.get('QUEST_TOPP_MAX', '105.0'))
         norm = HandTrackingMapper._normalize(opposition_deg, omin, omax)
-        invert = os.environ.get('QUEST_TOPP_INVERT', '1') not in ('0', 'false', 'False')
-        if invert:
-            # Increase in opposition angle should reduce Inspire angle (flip direction)
-            angle = int((1.0 - norm) * 1000)
-        else:
-            angle = int(norm * 1000)
+        # Inverted mapping: higher Quest angle (more opposed) → lower Inspire angle (rotate out)
+        # Lower Quest angle (extended) → higher Inspire angle (rotate in)
+        angle = int((1.0 - norm) * 1000)
         return max(0, min(1000, angle))
     
     @staticmethod
