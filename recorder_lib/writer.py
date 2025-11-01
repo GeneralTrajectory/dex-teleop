@@ -153,6 +153,9 @@ class HDF5Writer:
             return
         
         for device, data in self.buffers.items():
+            # Skip devices that don't exist in the HDF5 file (inactive arms)
+            if device not in self.h5file:
+                continue
             group = self.h5file[device]
             
             if device.startswith('xarm'):

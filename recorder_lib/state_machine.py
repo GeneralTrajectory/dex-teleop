@@ -325,6 +325,10 @@ class RecorderOrchestrator:
         elif self.state == RecorderState.RECORDING:
             # Stop recording
             self._transition_to_stop()
+        elif self.state in (RecorderState.STOPPING, RecorderState.SAVING, 
+                           RecorderState.DISCARDING, RecorderState.HOMING):
+            # Ignore pedal during state transitions (prevent double-trigger)
+            print(f"⚠️ Pedal pressed during {self.state.value} (ignored)")
         else:
             print(f"⚠️ Pedal pressed in {self.state.value} state (ignored)")
     

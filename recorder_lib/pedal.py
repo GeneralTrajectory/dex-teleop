@@ -5,6 +5,7 @@ Recorder pedal with toggle logic and debouncing.
 import sys
 import time
 import threading
+import os
 from typing import Callable
 
 try:
@@ -33,7 +34,9 @@ class RecorderPedal:
         """
         self.on_toggle = on_toggle_callback
         self.last_press_time = 0.0
-        self.debounce_s = 0.150  # 150ms debounce
+        # Debounce duration (seconds); can be overridden via env
+        # Longer debounce mitigates OS key auto-repeat from foot pedal
+        self.debounce_s = float(os.environ.get('RECORDER_PEDAL_DEBOUNCE_S', '0.50'))
         self._thread = None
         self._running = False
         self._old_terminal_settings = None
@@ -100,6 +103,12 @@ class RecorderPedal:
                             print(f"❌ Pedal callback error: {e}")
                             import traceback
                             traceback.print_exc()
+                        
+                        # Flush any auto-repeated 'b' characters from stdin buffer
+                        try:
+                            termios.tcflush(sys.stdin, termios.TCIFLUSH)
+                        except Exception:
+                            pass
                         
                 except Exception:
                     pass

@@ -119,7 +119,7 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
             print(f"  Playback speed: {speed}x")
             print()
             
-            # Load trajectories (only for active arms)
+            # Load xArm trajectories (only for active arms)
             trajectories = {}
             for arm_label in active_arms:
                 device = f'xarm_{arm_label}'
@@ -132,11 +132,16 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
                     n_samples = len(trajectories[arm_label]['timestamps'])
                     print(f"✅ Loaded {arm_label} arm: {n_samples} samples")
             
-            # Load Inspire data (for display only, only for active arms)
+            # Load Inspire trajectories (only for active arms)
+            inspire_traj = {}
             for hand_label in active_arms:
                 device = f'inspire_{hand_label}'
                 if device in f and 'timestamps_mono' in f[device]:
-                    n_samples = len(f[device]['timestamps_mono'])
+                    inspire_traj[hand_label] = {
+                        'timestamps': f[device]['timestamps_mono'][:],
+                        'angles': f[device]['angles'][:],
+                    }
+                    n_samples = len(inspire_traj[hand_label]['timestamps'])
                     print(f"✅ Loaded {hand_label} hand: {n_samples} samples")
     
     except Exception as e:
@@ -203,7 +208,7 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
         try:
             arm = XArmAPI(ip)
             arm.motion_enable(True)
-            arm.set_mode(0)  # Position mode
+            arm.set_mode(1)  # Servo mode for real-time streaming
             arm.set_state(0)  # Ready
             arms[label] = arm
             print(f"✅ Connected to {label} arm")
@@ -211,6 +216,65 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
             print(f"❌ Failed to connect to {label} arm: {e}")
             return 1
     
+    # Ensure arms are at known HOME pose before starting replay
+    # This prevents a sudden jump from an arbitrary pose to the trajectory start
+    HOME_POSE = [275.0, 0.0, 670.0, 180.0, -1.0, 0.0]  # [x,y,z,roll,pitch,yaw]
+    home_speed = int(os.environ.get('REPLAY_HOME_SPEED', '150'))
+    print("\n🏠 Moving arm(s) to HOME pose before replay...")
+    for label, arm in arms.items():
+        try:
+            # Use position mode for a planned move to HOME
+            arm.set_mode(0)
+            arm.set_state(0)
+            ret = arm.set_position(*HOME_POSE, speed=home_speed, wait=True, timeout=20)
+            if ret != 0:
+                print(f"⚠️  {label} arm home move returned code {ret}")
+            else:
+                print(f"✅ {label} arm at HOME pose")
+        except Exception as e:
+            print(f"⚠️  Failed to move {label} arm to HOME pose: {e}")
+        finally:
+            # Return to servo mode for streaming
+            try:
+                arm.set_mode(1)
+                arm.set_state(0)
+            except Exception:
+                pass
+    time.sleep(0.2)
+    
+    # Connect to Inspire hands if trajectories are available
+    inspire_devices = {}
+    hand_indices = {}
+    if 'inspire_traj' in locals() and len(inspire_traj) > 0:
+        try:
+            sys.path.insert(0, '/home/joshua/Research/inspire_hands')
+            from inspire_hand import InspireHand
+            replay_hand_speed = int(os.environ.get('REPLAY_INSPIRE_SPEED', '1000'))
+            print("\n🤝 Connecting to Inspire Hand(s) for replay...")
+            for label, traj in inspire_traj.items():
+                port = '/dev/ttyUSB1' if label == 'left' else '/dev/ttyUSB0'
+                try:
+                    hand = InspireHand(port=port, slave_id=1, debug=False)
+                    hand.open()
+                    hand.set_all_finger_speeds(replay_hand_speed)
+                    inspire_devices[label] = hand
+                    hand_indices[label] = 0
+                    print(f"✅ Connected to {label} Inspire Hand ({port})")
+                except Exception as e:
+                    print(f"⚠️  Failed to connect to Inspire {label}: {e}")
+        except Exception as e:
+            print(f"⚠️  Inspire library not available: {e}")
+
+    # Prime Inspire hands to first recorded angles to avoid sudden jump on first send
+    for label, hand in inspire_devices.items():
+        try:
+            if label in inspire_traj and len(inspire_traj[label]['angles']) > 0:
+                first_angles = inspire_traj[label]['angles'][0].astype(int).tolist()
+                hand.modbus.write_multiple_registers(1486, first_angles)
+                print(f"✅ {label} hand primed to initial angles")
+        except Exception as e:
+            print(f"⚠️  Failed to prime {label} hand: {e}")
+
     # Replay trajectories
     print(f"\n▶️  Starting replay at {speed}x speed...")
     print("   Press robot STOP button to abort")
@@ -233,7 +297,7 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
             while time.time() - start_time < target_time:
                 time.sleep(0.001)
             
-            # Send joint positions to each arm
+            # Send joint positions to each arm (servo joint streaming preferred)
             for label, traj in trajectories.items():
                 if i >= len(traj['timestamps']):
                     continue  # This arm's trajectory is shorter
@@ -241,11 +305,53 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
                 joint_angles = traj['joint_positions'][i].tolist()
                 
                 try:
-                    arms[label].set_servo_angle(angle=joint_angles, is_radian=False, wait=False)
+                    arm = arms[label]
+                    ret = None
+                    if hasattr(arm, 'set_servo_angle_j'):
+                        # Servo joint streaming (real-time)
+                        ret = arm.set_servo_angle_j(joint_angles, is_radian=False)
+                    else:
+                        # Fallback: try regular set_servo_angle
+                        ret = arm.set_servo_angle(angle=joint_angles, is_radian=False, wait=False)
+                    
+                    if ret not in (None, 0):
+                        # Attempt to re-enable servo mode once if needed
+                        try:
+                            arm.set_mode(1)
+                            arm.set_state(0)
+                        except Exception:
+                            pass
                 except Exception as e:
                     print(f"\n❌ Replay error on {label} arm at frame {i}: {e}")
                     break
             
+            # Send Inspire hand angles according to their own timestamps
+            if inspire_devices:
+                elapsed = time.time() - start_time
+                for label, hand in inspire_devices.items():
+                    try:
+                        if label not in inspire_traj:
+                            continue
+                        ts = inspire_traj[label]['timestamps']
+                        angles_arr = inspire_traj[label]['angles']
+                        if len(ts) == 0:
+                            continue
+                        idx = hand_indices.get(label, 0)
+                        t0 = ts[0]
+                        # Drain all samples whose scheduled time has arrived
+                        while idx < len(ts):
+                            target_t = (ts[idx] - t0) / max(speed, 1e-6)
+                            if elapsed + 1e-4 < target_t:
+                                break
+                            angles = angles_arr[idx].astype(int).tolist()
+                            # Send via Modbus write (same as teleop sender)
+                            hand.modbus.write_multiple_registers(1486, angles)
+                            idx += 1
+                        hand_indices[label] = idx
+                    except Exception as e:
+                        # Non-fatal; continue replay
+                        pass
+
             # Progress indicator
             if i % 100 == 0:
                 progress = (i / max_samples) * 100
@@ -264,6 +370,20 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
                 print(f"✅ Disconnected from {label} arm")
             except:
                 pass
+        # Disconnect Inspire hands
+        if 'inspire_devices' in locals():
+            for label, hand in inspire_devices.items():
+                try:
+                    # Safe state: open all fingers before closing
+                    try:
+                        hand.open_all_fingers()
+                        time.sleep(0.2)
+                    except Exception:
+                        pass
+                    hand.close()
+                    print(f"✅ Disconnected from {label} hand")
+                except Exception:
+                    pass
     
     return 0
 
