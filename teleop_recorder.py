@@ -55,7 +55,8 @@ def cmd_record(args):
         task=args.task,
         notes=args.notes,
         arms=args.arms,
-        speed_scale=args.speed
+        speed_scale=args.speed,
+        record_hands=(not getattr(args, 'arm_only', False))
     )
     return recorder.run()
 
@@ -113,6 +114,8 @@ def main():
                               help='Which arm(s) to use: left, right, or both (default: both)')
     record_parser.add_argument('--speed', type=float, default=1.0,
                               help='Teleoperation speed scale (default: 1.0, e.g., 0.5 = half speed)')
+    record_parser.add_argument('--arm-only', action='store_true',
+                              help='Record only xArm data (no Inspire gripper). Default: record both')
     record_parser.set_defaults(func=cmd_record)
     
     # List command

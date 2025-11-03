@@ -28,7 +28,9 @@ class HDF5Writer:
     
     def __init__(self, output_dir: str, subject: Optional[str], 
                  task: Optional[str], notes: Optional[str], ephemeral: bool = False,
-                 active_arms: Optional[list] = None):
+                 active_arms: Optional[list] = None,
+                 include_inspire: bool = True,
+                 include_xarm: bool = True):
         """
         Initialize the HDF5 writer.
         
@@ -56,6 +58,8 @@ class HDF5Writer:
         self.temp_path = None
         self.final_path = None
         self.h5file = None
+        self.include_inspire = include_inspire
+        self.include_xarm = include_xarm
         
         # Data buffers (collect in memory, flush periodically)
         self.buffers = {
@@ -103,8 +107,10 @@ class HDF5Writer:
         
         # Create groups only for active devices
         for arm_label in self.active_arms:
-            self.h5file.create_group(f'xarm_{arm_label}')
-            self.h5file.create_group(f'inspire_{arm_label}')
+            if self.include_xarm:
+                self.h5file.create_group(f'xarm_{arm_label}')
+            if self.include_inspire:
+                self.h5file.create_group(f'inspire_{arm_label}')
         
         self.start_time_mono = time.monotonic()
         

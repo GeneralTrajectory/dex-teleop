@@ -57,7 +57,8 @@ class RecorderOrchestrator:
     def __init__(self, ephemeral: bool = False, subject: Optional[str] = None,
                  task: Optional[str] = None, notes: Optional[str] = None,
                  arms: str = 'both',
-                 speed_scale: float = 1.0):
+                 speed_scale: float = 1.0,
+                 record_hands: bool = True):
         """
         Initialize the recorder orchestrator.
         
@@ -75,6 +76,7 @@ class RecorderOrchestrator:
         self.notes = notes
         self.arms = arms  # 'left', 'right', or 'both'
         self.speed_scale = speed_scale
+        self.record_hands = record_hands
         
         # Determine active arms
         self.active_arms = []
@@ -154,8 +156,9 @@ class RecorderOrchestrator:
                     # Run xArm teleoperation
                     self._run_xarm_teleop_step()
                     
-                    # Run Inspire teleoperation
-                    self._run_inspire_teleop_step(last_sent)
+                    # Run Inspire teleoperation (if enabled)
+                    if self.record_hands:
+                        self._run_inspire_teleop_step(last_sent)
                     
                     # Display status periodically
                     if time.time() - last_status_time >= 1.0:
@@ -291,29 +294,30 @@ class RecorderOrchestrator:
                 self.xarm_io_clients['right'] = start_xarm_io_proxy(right_ip, poll_hz=100.0)
                 print(f"   ✅ xArm I/O proxy started for right")
         
-        # Initialize Quest receiver
-        print("\n📡 Starting Quest hand receiver...")
-        self.quest_receiver = QuestReceiverThread(port=9000)
-        self.quest_receiver.start()
-        print("✅ Quest receiver started")
-        
-        # Initialize Inspire Hands
-        print(f"\n🖐️ Connecting to Inspire Hand(s) for {self.arms} arm(s)...")
-        
-        if 'left' in self.active_arms:
-            self.inspire_hands['left'] = InspireHand(port='/dev/ttyUSB1', slave_id=1, debug=False)
-            self.inspire_hands['left'].open()
-            print("✅ Connected to left Inspire Hand")
-        
-        if 'right' in self.active_arms:
-            self.inspire_hands['right'] = InspireHand(port='/dev/ttyUSB0', slave_id=1, debug=False)
-            self.inspire_hands['right'].open()
-            print("✅ Connected to right Inspire Hand")
-        
-        # Open all fingers
-        for hand in self.inspire_hands.values():
-            hand.open_all_fingers()
-            hand.set_all_finger_speeds(1000)
+        if self.record_hands:
+            # Initialize Quest receiver
+            print("\n📡 Starting Quest hand receiver...")
+            self.quest_receiver = QuestReceiverThread(port=9000)
+            self.quest_receiver.start()
+            print("✅ Quest receiver started")
+            
+            # Initialize Inspire Hands
+            print(f"\n🖐️ Connecting to Inspire Hand(s) for {self.arms} arm(s)...")
+            
+            if 'left' in self.active_arms:
+                self.inspire_hands['left'] = InspireHand(port='/dev/ttyUSB1', slave_id=1, debug=False)
+                self.inspire_hands['left'].open()
+                print("✅ Connected to left Inspire Hand")
+            
+            if 'right' in self.active_arms:
+                self.inspire_hands['right'] = InspireHand(port='/dev/ttyUSB0', slave_id=1, debug=False)
+                self.inspire_hands['right'].open()
+                print("✅ Connected to right Inspire Hand")
+            
+            # Open all fingers
+            for hand in self.inspire_hands.values():
+                hand.open_all_fingers()
+                hand.set_all_finger_speeds(1000)
         
         print("\n✅ All devices initialized")
     
@@ -419,7 +423,9 @@ class RecorderOrchestrator:
             task=self.task,
             notes=self.notes,
             ephemeral=self.ephemeral,
-            active_arms=self.active_arms
+            active_arms=self.active_arms,
+            include_inspire=self.record_hands,
+            include_xarm=True
         )
         
         config = {
@@ -432,23 +438,24 @@ class RecorderOrchestrator:
         self.trial_id = self.writer.start(config=config)
         print(f"✅ Writer initialized (trial_id={self.trial_id})")
         
-        # Initialize Inspire Hand senders (for teleoperation)
-        print(f"\n[RECORDING] Initializing Inspire Hand senders...")
-        _, _, HandSender, AngleEMAFilter = _import_quest()
-        
-        self.hand_senders = {}
-        for arm in self.active_arms:
-            if arm in self.inspire_hands:
-                self.hand_senders[arm] = HandSender(self.inspire_hands[arm])
-                print(f"✅ {arm} hand sender initialized")
-        for arm, sender in self.hand_senders.items():
-            sender.start()
-        
-        # Initialize EMA filters
-        ema_slow = 0.5
-        ema_bypass = 8
-        self.ema_filters = {arm: AngleEMAFilter(alpha_slow=ema_slow, bypass_threshold=ema_bypass)
-                            for arm in self.active_arms}
+        # Initialize Inspire Hand senders (for teleoperation) if recording hands
+        if self.record_hands:
+            print(f"\n[RECORDING] Initializing Inspire Hand senders...")
+            _, _, HandSender, AngleEMAFilter = _import_quest()
+            
+            self.hand_senders = {}
+            for arm in self.active_arms:
+                if arm in self.inspire_hands:
+                    self.hand_senders[arm] = HandSender(self.inspire_hands[arm])
+                    print(f"✅ {arm} hand sender initialized")
+            for arm, sender in self.hand_senders.items():
+                sender.start()
+            
+            # Initialize EMA filters
+            ema_slow = 0.5
+            ema_bypass = 8
+            self.ema_filters = {arm: AngleEMAFilter(alpha_slow=ema_slow, bypass_threshold=ema_bypass)
+                                for arm in self.active_arms}
         
         # Start recording workers
         print(f"\n[RECORDING] Starting workers...")
@@ -460,12 +467,13 @@ class RecorderOrchestrator:
             self.xarm_recorders[label] = recorder
         
         # Create shared state dicts for each hand to pass commanded angles
-        self.inspire_shared_state = {arm: {'last_commanded': None} for arm in self.active_arms}
+        self.inspire_shared_state = {arm: {'last_commanded': None} for arm in self.active_arms} if self.record_hands else {}
         
-        for label, hand in self.inspire_hands.items():
-            recorder = InspireRecorder(hand, label, self.inspire_shared_state[label])
-            recorder.start_recording()
-            self.inspire_recorders[label] = recorder
+        if self.record_hands:
+            for label, hand in self.inspire_hands.items():
+                recorder = InspireRecorder(hand, label, self.inspire_shared_state[label])
+                recorder.start_recording()
+                self.inspire_recorders[label] = recorder
         
         self.state = RecorderState.RECORDING
         self.record_start_time = time.time()
@@ -552,17 +560,18 @@ class RecorderOrchestrator:
             if mapper.tracker is None:
                 return False, f"Vive tracker {arm_label} not initialized"
         
-        # Inspire presence checks (no API calls)
-        for hand_label in self.active_arms:
-            if hand_label not in self.inspire_hands:
-                return False, f"Inspire {hand_label} not initialized"
-            hand = self.inspire_hands[hand_label]
-            if getattr(hand, 'is_connected', True) is False:
-                return False, f"Inspire {hand_label} not connected"
-        
-        # Quest receiver presence check (no socket calls)
-        if len(self.inspire_hands) > 0 and (self.quest_receiver is None or not getattr(self.quest_receiver, '_running', True)):
-            return False, "Quest receiver not active"
+        # Inspire presence checks (no API calls) only if recording hands
+        if self.record_hands:
+            for hand_label in self.active_arms:
+                if hand_label not in self.inspire_hands:
+                    return False, f"Inspire {hand_label} not initialized"
+                hand = self.inspire_hands[hand_label]
+                if getattr(hand, 'is_connected', True) is False:
+                    return False, f"Inspire {hand_label} not connected"
+            
+            # Quest receiver presence check (no socket calls)
+            if len(self.inspire_hands) > 0 and (self.quest_receiver is None or not getattr(self.quest_receiver, '_running', True)):
+                return False, "Quest receiver not active"
         
         return True, "OK"
     
@@ -587,9 +596,10 @@ class RecorderOrchestrator:
             
             print(f"   ✅ {label} arm at home")
         
-        # Open all Inspire fingers
-        for label, hand in self.inspire_hands.items():
-            hand.open_all_fingers()
+        # Open all Inspire fingers (if enabled)
+        if self.record_hands:
+            for label, hand in self.inspire_hands.items():
+                hand.open_all_fingers()
         
         time.sleep(1.0)  # Settle
         return True
@@ -718,8 +728,10 @@ class RecorderOrchestrator:
         # Get buffer sizes (only active arms)
         xarm_samples = {label: rec.get_buffer_size() 
                        for label, rec in self.xarm_recorders.items() if label in self.active_arms}
-        inspire_samples = {label: rec.get_buffer_size() 
-                          for label, rec in self.inspire_recorders.items() if label in self.active_arms}
+        inspire_samples = {}
+        if self.record_hands:
+            inspire_samples = {label: rec.get_buffer_size() 
+                              for label, rec in self.inspire_recorders.items() if label in self.active_arms}
         
         # Calculate expected vs actual samples
         xarm_expected = int(elapsed * 100)  # 100 Hz
@@ -731,11 +743,12 @@ class RecorderOrchestrator:
             status += f"xArm L:{xarm_samples.get('left', 0)}/{xarm_expected} "
         if 'right' in self.active_arms:
             status += f"xArm R:{xarm_samples.get('right', 0)}/{xarm_expected} "
-        status += "| "
-        if 'left' in self.active_arms:
-            status += f"Inspire L:{inspire_samples.get('left', 0)}/{inspire_expected} "
-        if 'right' in self.active_arms:
-            status += f"Inspire R:{inspire_samples.get('right', 0)}/{inspire_expected}"
+        if self.record_hands:
+            status += "| "
+            if 'left' in self.active_arms:
+                status += f"Inspire L:{inspire_samples.get('left', 0)}/{inspire_expected} "
+            if 'right' in self.active_arms:
+                status += f"Inspire R:{inspire_samples.get('right', 0)}/{inspire_expected}"
         
         print(status, end='', flush=True)
     
