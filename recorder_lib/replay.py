@@ -374,10 +374,19 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
         if 'inspire_devices' in locals():
             for label, hand in inspire_devices.items():
                 try:
-                    # Safe state: open all fingers before closing
+                    # Keep last pose by default. To restore previous behavior and open on exit,
+                    # set REPLAY_INSPIRE_OPEN_ON_EXIT=1
                     try:
-                        hand.open_all_fingers()
-                        time.sleep(0.2)
+                        open_on_exit = os.environ.get('REPLAY_INSPIRE_OPEN_ON_EXIT', '0').strip().lower() in ('1','true','yes','y')
+                        if not open_on_exit:
+                            # Send final recorded angles once to ensure last pose is latched
+                            if 'inspire_traj' in locals() and label in inspire_traj and len(inspire_traj[label]['angles']) > 0:
+                                final_angles = inspire_traj[label]['angles'][-1].astype(int).tolist()
+                                hand.modbus.write_multiple_registers(1486, final_angles)
+                                time.sleep(0.1)
+                        else:
+                            hand.open_all_fingers()
+                            time.sleep(0.2)
                     except Exception:
                         pass
                     hand.close()
