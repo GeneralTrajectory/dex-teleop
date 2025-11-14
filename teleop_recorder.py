@@ -56,7 +56,8 @@ def cmd_record(args):
         notes=args.notes,
         arms=args.arms,
         speed_scale=args.speed,
-        record_hands=(not getattr(args, 'arm_only', False))
+        record_hands=(not getattr(args, 'arm_only', False)),
+        skip_home=args.skip_home
     )
     return recorder.run()
 
@@ -116,6 +117,8 @@ def main():
                               help='Teleoperation speed scale (default: 1.0, e.g., 0.5 = half speed)')
     record_parser.add_argument('--arm-only', action='store_true',
                               help='Record only xArm data (no Inspire gripper). Default: record both')
+    record_parser.add_argument('--skip-home', action='store_true',
+                              help='Skip moving to home position, use current arm position instead')
     record_parser.set_defaults(func=cmd_record)
     
     # List command

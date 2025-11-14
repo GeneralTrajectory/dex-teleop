@@ -676,11 +676,12 @@ class ViveToXArmMapper:
         print("✅ Shutdown complete")
 
 
-def run_teleoperation(mode: str = 'right'):
+def run_teleoperation(mode: str = 'right', skip_home: bool = False):
     """Main teleoperation control loop.
     
     Args:
         mode: 'left', 'right', or 'both' for bimanual control
+        skip_home: If True, skip moving to home position and use current position
     """
     
     # Configuration from environment
@@ -762,16 +763,20 @@ def run_teleoperation(mode: str = 'right'):
         return 1
     
     # Move arms to home position
-    try:
-        for label, mapper in mappers.items():
-            print(f"\n🏠 Moving {label} arm to home position...")
-            mapper.adapter.go_home()
-            print(f"✅ {label} arm at home position")
-    except Exception as e:
-        print(f"❌ Failed to move to home: {e}")
-        for mapper in mappers.values():
-            mapper.shutdown()
-        return 1
+    if not skip_home:
+        try:
+            for label, mapper in mappers.items():
+                print(f"\n🏠 Moving {label} arm to home position...")
+                mapper.adapter.go_home()
+                print(f"✅ {label} arm at home position")
+        except Exception as e:
+            print(f"❌ Failed to move to home: {e}")
+            for mapper in mappers.values():
+                mapper.shutdown()
+            return 1
+    else:
+        print("\n⚠️  Skipping home move - will calibrate from current arm position")
+        print("   Make sure arms are in desired starting positions!")
     
     # Calibrate reference poses
     try:
@@ -1016,6 +1021,8 @@ def main():
     parser.add_argument('--speed', type=int,
                        default=int(os.environ.get('TELEOP_SPEED', '100')),
                        help='Motion speed in mm/s (default: 100)')
+    parser.add_argument('--skip-home', action='store_true',
+                       help='Skip moving to home position, use current arm position instead')
     
     args = parser.parse_args()
     
@@ -1027,7 +1034,7 @@ def main():
     os.environ['TELEOP_RATE_HZ'] = str(args.rate)
     os.environ['TELEOP_SPEED'] = str(args.speed)
     
-    return run_teleoperation(mode=args.mode)
+    return run_teleoperation(mode=args.mode, skip_home=args.skip_home)
 
 
 if __name__ == '__main__':

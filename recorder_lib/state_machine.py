@@ -58,7 +58,8 @@ class RecorderOrchestrator:
                  task: Optional[str] = None, notes: Optional[str] = None,
                  arms: str = 'both',
                  speed_scale: float = 1.0,
-                 record_hands: bool = True):
+                 record_hands: bool = True,
+                 skip_home: bool = False):
         """
         Initialize the recorder orchestrator.
         
@@ -69,6 +70,8 @@ class RecorderOrchestrator:
             notes: Session notes
             arms: Which arm(s) to use ('left', 'right', or 'both')
             speed_scale: Teleoperation speed multiplier (default: 1.0, e.g., 0.5 = half speed)
+            record_hands: If True, record Inspire hand data (default: True)
+            skip_home: If True, skip moving to home position and use current position (default: False)
         """
         self.ephemeral = ephemeral
         self.subject = subject
@@ -77,6 +80,7 @@ class RecorderOrchestrator:
         self.arms = arms  # 'left', 'right', or 'both'
         self.speed_scale = speed_scale
         self.record_hands = record_hands
+        self.skip_home = skip_home
         
         # Determine active arms
         self.active_arms = []
@@ -355,14 +359,18 @@ class RecorderOrchestrator:
         print("✅ Health checks passed")
         
         # Home arms
-        print(f"\n[{self.state.value.upper()}] Homing arms...")
-        if not self._home_arms():
-            print("❌ Homing failed")
-            self.state = RecorderState.ERROR
-            print("   Returning to IDLE")
-            self.state = RecorderState.IDLE
-            return
-        print("✅ Arms homed")
+        if not self.skip_home:
+            print(f"\n[{self.state.value.upper()}] Homing arms...")
+            if not self._home_arms():
+                print("❌ Homing failed")
+                self.state = RecorderState.ERROR
+                print("   Returning to IDLE")
+                self.state = RecorderState.IDLE
+                return
+            print("✅ Arms homed")
+        else:
+            print(f"\n⚠️  Skipping home move - will calibrate from current arm position")
+            print("   Make sure arms are in desired starting positions!")
         
         # Calibrate trackers
         print(f"\n[{self.state.value.upper()}] Calibrating trackers (6s countdown)...")
@@ -381,8 +389,21 @@ class RecorderOrchestrator:
             mapper.tracker_home = None
             print("✅ Will capture tracker home on first teleop frame (lazy)")
             
-            # Use known HOME_POSE as arm home (do not query SDK)
-            home = self.HOME_POSE
+            # Determine arm home pose
+            if self.skip_home:
+                # Query current position as home
+                current_tcp_pose = mapper.adapter._get_live_tcp_pose()
+                if current_tcp_pose is None:
+                    print(f"❌ Failed to query {label} arm current position")
+                    self.state = RecorderState.ERROR
+                    self.state = RecorderState.IDLE
+                    return
+                home = current_tcp_pose
+                print(f"   Using current position as home: [{home[0]:.1f}, {home[1]:.1f}, {home[2]:.1f}] mm")
+            else:
+                # Use known HOME_POSE as arm home (do not query SDK)
+                home = self.HOME_POSE
+                
             mapper.arm_home_pose = {
                 'x': float(home[0]), 'y': float(home[1]), 'z': float(home[2]),
                 'roll': float(home[3]), 'pitch': float(home[4]), 'yaw': float(home[5])
