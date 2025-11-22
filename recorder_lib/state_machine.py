@@ -172,10 +172,12 @@ class RecorderOrchestrator:
                     # Idle, just sleep
                     time.sleep(0.1)
                 
-                # Rate limiting for main loop (when recording, runs at ~60Hz for Inspire)
+                # Rate limiting for main loop
+                # Use TELEOP_RATE_HZ if set, otherwise default to 100Hz (standard for xArm teleop)
+                target_rate = int(os.environ.get('TELEOP_RATE_HZ', '100'))
                 if self.state == RecorderState.RECORDING:
                     elapsed = time.time() - loop_start
-                    sleep_time = (1.0 / 60.0) - elapsed
+                    sleep_time = (1.0 / target_rate) - elapsed
                     if sleep_time > 0:
                         time.sleep(sleep_time)
         
@@ -373,11 +375,9 @@ class RecorderOrchestrator:
             print("   Make sure arms are in desired starting positions!")
         
         # Calibrate trackers
-        print(f"\n[{self.state.value.upper()}] Calibrating trackers (6s countdown)...")
+        print(f"\n[{self.state.value.upper()}] Calibrating trackers (2.5s wait)...")
         print("   Hold BOTH trackers steady!")
-        for i in range(6, 0, -1):
-            print(f"   {i}...")
-            time.sleep(1.0)
+        time.sleep(2.5)
         
         # Safe calibration: avoid vendor SDK calls here (defer tracker capture)
         for label, mapper in self.xarm_mappers.items():

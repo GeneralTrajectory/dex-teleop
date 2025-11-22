@@ -166,8 +166,8 @@ class ViveToXArmMapper:
         self.rotation_scale = rotation_scale
         # Per-axis position fine-tuning (multiplied after global scale)
         # Defaults to 1.0 so existing behavior is unchanged
-        self.position_scale_x = float(os.environ.get('VIVE_POSITION_SCALE_X', '1.0'))
-        self.position_scale_y = float(os.environ.get('VIVE_POSITION_SCALE_Y', '1.0'))
+        self.position_scale_x = float(os.environ.get('VIVE_POSITION_SCALE_X', '1.5'))
+        self.position_scale_y = float(os.environ.get('VIVE_POSITION_SCALE_Y', '2.0'))
         self.position_scale_z = float(os.environ.get('VIVE_POSITION_SCALE_Z', '1.5'))
         # Per-axis rotation fine-tuning (multiplied after global scale)
         # Defaults to 1.0 so existing behavior is unchanged

@@ -91,9 +91,23 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
         print("❌ h5py not installed")
         return 1
     
-    trial_file = Path(data_dir) / f"trial_{trial_id}.h5"
-    if not trial_file.exists():
-        print(f"❌ Trial not found: {trial_file}")
+    # Try resolving the file path in multiple ways
+    possible_paths = [
+        Path(data_dir) / trial_id,                        # Exact match (e.g. full filename)
+        Path(data_dir) / f"{trial_id}.h5",                # ID + extension
+        Path(data_dir) / f"trial_{trial_id}.h5",          # Standard prefix format
+    ]
+    
+    trial_file = None
+    for p in possible_paths:
+        if p.exists():
+            trial_file = p
+            break
+            
+    if not trial_file:
+        print(f"❌ Trial not found. Searched:")
+        for p in possible_paths:
+            print(f"   - {p}")
         return 1
     
     print("="*60)
