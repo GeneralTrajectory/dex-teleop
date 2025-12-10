@@ -24,8 +24,8 @@ Usage:
     # Replay a recording (dry-run)
     python teleop_recorder.py replay --trial-id 20250130_143022 --dry-run
     
-    # Replay live at 0.5x speed
-    python teleop_recorder.py replay --trial-id 20250130_143022 --speed 0.5
+    # Replay live at 0.5x speed with smoothing
+    python teleop_recorder.py replay --trial-id 20250130_143022 --speed 0.5 --smooth 5.0
 
 Controls:
     - Press 'b' (foot pedal) to start/stop recording
@@ -88,7 +88,9 @@ def cmd_replay(args):
         trial_id=args.trial_id,
         speed=args.speed,
         dry_run=args.dry_run,
-        data_dir=args.data_dir
+        data_dir=args.data_dir,
+        smooth_sigma=args.smooth,
+        collision_drop_threshold=args.collision_drop_threshold
     )
 
 
@@ -145,6 +147,10 @@ def main():
                               help='Validate and show stats without robot motion')
     replay_parser.add_argument('--data-dir', default='/home/joshua/Research/dex-teleop/data',
                               help='Data directory (default: ./data)')
+    replay_parser.add_argument('--smooth', type=float, default=5.0,
+                              help='Smoothing sigma for joint trajectories (default: 5.0, 0 to disable)')
+    replay_parser.add_argument('--collision-drop-threshold', type=float, default=0.80,
+                              help='If collision after this progress (0.0-1.0), drop object and succeed (default: 0.80). Set to 1.0 to disable.')
     replay_parser.set_defaults(func=cmd_replay)
     
     args = parser.parse_args()
@@ -159,5 +165,3 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
-
-

@@ -16,6 +16,13 @@ except ImportError:
     HDF5_AVAILABLE = False
     print("⚠️ h5py not installed. Install with: pip install h5py")
 
+try:
+    from scipy.ndimage import gaussian_filter1d
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
+    print("⚠️ scipy not installed. Install with: pip install scipy")
+
 # Add xArm SDK to path
 sys.path.insert(0, '/home/joshua/Documents/Sources/Papers/Cursor/AnyDexGrasp')
 
@@ -77,7 +84,9 @@ def list_trials(data_dir: str = '/home/joshua/Research/dex-teleop/data'):
 
 
 def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
-                data_dir: str = '/home/joshua/Research/dex-teleop/data'):
+                data_dir: str = '/home/joshua/Research/dex-teleop/data',
+                smooth_sigma: float = 5.0,
+                collision_drop_threshold: float = 0.80):
     """
     Replay a recorded trial.
     
@@ -86,6 +95,9 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
         speed: Playback speed multiplier (1.0 = real-time)
         dry_run: If True, don't move robots (just validate and plot)
         data_dir: Directory containing trial files
+        smooth_sigma: Standard deviation for Gaussian smoothing (0 to disable)
+        collision_drop_threshold: If collision detected after this progress (0.0-1.0),
+                                  open gripper and return success. Set to 1.0 to disable.
     """
     if not HDF5_AVAILABLE:
         print("❌ h5py not installed")
@@ -131,6 +143,7 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
             print(f"  Duration: {duration:.1f}s")
             print(f"  Arms: {', '.join(active_arms)}")
             print(f"  Playback speed: {speed}x")
+            print(f"  Smoothing sigma: {smooth_sigma}")
             print()
             
             # Load xArm trajectories (only for active arms)
@@ -138,9 +151,19 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
             for arm_label in active_arms:
                 device = f'xarm_{arm_label}'
                 if device in f and 'timestamps_mono' in f[device]:
+                    raw_joints = f[device]['joint_positions'][:]
+                    
+                    # Apply smoothing if requested
+                    if SCIPY_AVAILABLE and smooth_sigma > 0:
+                        print(f"   Processing {arm_label} arm: Smoothing joints (sigma={smooth_sigma})...")
+                        smoothed_joints = gaussian_filter1d(raw_joints, sigma=smooth_sigma, axis=0)
+                    else:
+                        smoothed_joints = raw_joints
+
                     trajectories[arm_label] = {
                         'timestamps': f[device]['timestamps_mono'][:],
-                        'joint_positions': f[device]['joint_positions'][:],
+                        'joint_positions': smoothed_joints,
+                        'raw_joint_positions': raw_joints, # Keep raw for debug if needed
                         'tcp_poses': f[device]['tcp_poses'][:],
                     }
                     n_samples = len(trajectories[arm_label]['timestamps'])
@@ -292,7 +315,13 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
     # Replay trajectories
     print(f"\n▶️  Starting replay at {speed}x speed...")
     print("   Press robot STOP button to abort")
+    if collision_drop_threshold < 1.0:
+        print(f"   Collision drop enabled: will drop object if collision after {collision_drop_threshold*100:.0f}%")
     print()
+    
+    # Track collision state
+    collision_detected = False
+    collision_progress = 0.0
     
     try:
         # Get the longest trajectory for timing
@@ -301,6 +330,28 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
         start_time = time.time()
         
         for i in range(max_samples):
+            # Calculate progress for collision handling
+            progress = i / max_samples
+            
+            # Check for collision on all arms (error code 31 = collision)
+            for label, arm in arms.items():
+                try:
+                    if arm.error_code == 31:
+                        collision_detected = True
+                        collision_progress = progress
+                        print(f"\n⚠️  Collision detected on {label} arm at {progress*100:.1f}% progress!")
+                        
+                        if progress >= collision_drop_threshold:
+                            print(f"   ✅ Progress >= {collision_drop_threshold*100:.0f}% threshold - will drop object")
+                        else:
+                            print(f"   ❌ Progress < {collision_drop_threshold*100:.0f}% threshold - aborting")
+                        break
+                except Exception:
+                    pass  # Error code read failed, continue
+            
+            if collision_detected:
+                break
+            
             # Calculate target time for this frame
             for label, traj in trajectories.items():
                 if i < len(traj['timestamps']):
@@ -368,47 +419,80 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
 
             # Progress indicator
             if i % 100 == 0:
-                progress = (i / max_samples) * 100
-                print(f"\rProgress: {progress:.1f}% ({i}/{max_samples} frames)", end='', flush=True)
+                pct = (i / max_samples) * 100
+                print(f"\rProgress: {pct:.1f}% ({i}/{max_samples} frames)", end='', flush=True)
         
-        print("\n\n✅ Replay complete")
+        if not collision_detected:
+            print("\n\n✅ Replay complete")
     
     except KeyboardInterrupt:
         print("\n\n⚠️ Replay interrupted by user")
+        collision_detected = False  # Don't treat interrupt as collision
     
-    finally:
-        # Disconnect arms
+    # Handle collision outcome
+    should_drop_object = collision_detected and collision_progress >= collision_drop_threshold
+    
+    if collision_detected:
+        # Clear error and stop arm motion
         for label, arm in arms.items():
             try:
-                arm.disconnect()
-                print(f"✅ Disconnected from {label} arm")
-            except:
+                arm.clean_error()
+                arm.set_mode(0)  # Position mode
+                arm.set_state(0)
+            except Exception:
                 pass
-        # Disconnect Inspire hands
-        if 'inspire_devices' in locals():
-            for label, hand in inspire_devices.items():
-                try:
-                    # Keep last pose by default. To restore previous behavior and open on exit,
-                    # set REPLAY_INSPIRE_OPEN_ON_EXIT=1
+        
+        if should_drop_object:
+            print("\n🤲 Opening gripper to drop object...")
+            # Open all Inspire hands to drop the object
+            if 'inspire_devices' in locals():
+                for label, hand in inspire_devices.items():
                     try:
-                        open_on_exit = os.environ.get('REPLAY_INSPIRE_OPEN_ON_EXIT', '0').strip().lower() in ('1','true','yes','y')
-                        if not open_on_exit:
-                            # Send final recorded angles once to ensure last pose is latched
-                            if 'inspire_traj' in locals() and label in inspire_traj and len(inspire_traj[label]['angles']) > 0:
-                                final_angles = inspire_traj[label]['angles'][-1].astype(int).tolist()
-                                hand.modbus.write_multiple_registers(1486, final_angles)
-                                time.sleep(0.1)
-                        else:
-                            hand.open_all_fingers()
-                            time.sleep(0.2)
-                    except Exception:
-                        pass
-                    hand.close()
-                    print(f"✅ Disconnected from {label} hand")
+                        hand.open_all_fingers()
+                        print(f"   ✅ {label} hand opened")
+                    except Exception as e:
+                        print(f"   ⚠️ Failed to open {label} hand: {e}")
+            time.sleep(0.5)  # Let object drop
+            print("✅ Object dropped - treating as successful placement")
+    
+    # Disconnect arms
+    for label, arm in arms.items():
+        try:
+            arm.disconnect()
+            print(f"✅ Disconnected from {label} arm")
+        except:
+            pass
+    
+    # Disconnect Inspire hands
+    if 'inspire_devices' in locals():
+        for label, hand in inspire_devices.items():
+            try:
+                # Keep last pose by default. To restore previous behavior and open on exit,
+                # set REPLAY_INSPIRE_OPEN_ON_EXIT=1
+                try:
+                    open_on_exit = os.environ.get('REPLAY_INSPIRE_OPEN_ON_EXIT', '0').strip().lower() in ('1','true','yes','y')
+                    if not open_on_exit and not should_drop_object:
+                        # Send final recorded angles once to ensure last pose is latched
+                        if 'inspire_traj' in locals() and label in inspire_traj and len(inspire_traj[label]['angles']) > 0:
+                            final_angles = inspire_traj[label]['angles'][-1].astype(int).tolist()
+                            hand.modbus.write_multiple_registers(1486, final_angles)
+                            time.sleep(0.1)
+                    elif open_on_exit or should_drop_object:
+                        hand.open_all_fingers()
+                        time.sleep(0.2)
                 except Exception:
                     pass
+                hand.close()
+                print(f"✅ Disconnected from {label} hand")
+            except Exception:
+                pass
     
-    return 0
+    # Return codes:
+    # 0 = success (normal or collision-drop)
+    # 1 = early collision (needs retry)
+    if collision_detected and not should_drop_object:
+        return 1  # Early collision - signal failure
+    return 0  # Success
 
 
 def validate_trial(trial_id: str, data_dir: str = '/home/joshua/Research/dex-teleop/data'):
@@ -527,5 +611,3 @@ def validate_trial(trial_id: str, data_dir: str = '/home/joshua/Research/dex-tel
         import traceback
         traceback.print_exc()
         return False
-
-
