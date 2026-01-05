@@ -190,7 +190,7 @@ python quest_inspire_teleop.py
 
 ## Conclusion
 
-Real-time teleoperation of dexterous hands requires **ruthless elimination of I/O latency** (Modbus polling), **parallelization of independent devices** (per-hand threads), and **intelligent filtering that preserves signal while suppressing noise** (bypass-based adaptive smoothing). Traditional smoothing approaches (fixed EMA, slew limiters) trade latency for smoothness—the key is to only filter micro-jitter (<1% range) and pass everything else through instantly.
+Real-time teleoperation of dexterous hands requires **ruthless elimination of I/O latency** (Modbus polling), **parallelization of independent devices** (per-hand threads), and **intelligent filtering that preserves signal while suppressing noise** (bypass-based adaptive smoothing). Traditional smoothing approaches (fixed EMA, slew limiters) trade latency for smoothness; the key is to only filter micro-jitter (<1% range) and pass everything else through instantly.
 
 The final system achieves **imperceptible latency** (<50ms end-to-end) at **60 Hz per hand** with **zero jitter**, enabling natural, intuitive bimanual dexterous manipulation.
 

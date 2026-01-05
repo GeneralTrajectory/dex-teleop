@@ -2,12 +2,16 @@
 
 **VR-based Teleoperation for Dexterous Manipulation**
 
-A complete system for teleoperating robot arms and dexterous grippers using VR tracking. Control xArm robots with HTC Vive Trackers and Inspire Hands with Meta Quest hand tracking—all synchronized and recorded for imitation learning.
+A complete system for teleoperating robot arms and dexterous grippers using VR tracking. Control xArm robots with HTC Vive Trackers and Inspire Hands with Meta Quest hand tracking, all synchronized and recorded for imitation learning.
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python 3.8+">
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT License">
   <img src="https://img.shields.io/badge/platform-Ubuntu%2020.04+-orange.svg" alt="Ubuntu 20.04+">
+</p>
+
+<p align="center">
+  <img src="docs/images/teleop_compressed.gif" alt="Bimanual teleoperation demo" width="600">
 </p>
 
 ## Features

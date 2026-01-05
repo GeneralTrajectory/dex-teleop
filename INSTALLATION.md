@@ -137,10 +137,14 @@ Or build from source - see [quest_app/README.md](quest_app/README.md).
 
 ### Vive Tracker Setup
 
+<p align="center">
+  <img src="docs/images/vive_room_setup.png" alt="Vive Base Station Room Setup" width="500">
+</p>
+
 1. **Mount base stations**:
-   - Position 2 base stations diagonally across workspace
+   - Position 2 base stations in opposite corners of your workspace (as shown above)
    - Mount at 2+ meters height, angled down ~30°
-   - Ensure clear line-of-sight between stations
+   - Ensure clear line-of-sight between stations and to your tracking area
 
 2. **Pair tracker**:
    - Power on tracker (hold button until blue LED)

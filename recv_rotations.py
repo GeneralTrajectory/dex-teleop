@@ -3,7 +3,7 @@ import socket, json, math
 
 PORT = 9000
 
-# Rotation joint order (no tips) — must match the sender
+# Rotation joint order (no tips); must match the sender
 joint_order = [
     "Wrist","Palm",
     "ThumbMetacarpal","ThumbProximal","ThumbDistal",
