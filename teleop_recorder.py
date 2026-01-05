@@ -125,7 +125,7 @@ def main():
     
     # List command
     list_parser = subparsers.add_parser('list', help='List all recordings')
-    list_parser.add_argument('--data-dir', default='/home/joshua/Research/dex-teleop/data',
+    list_parser.add_argument('--data-dir', default=None,
                             help='Data directory (default: ./data)')
     list_parser.set_defaults(func=cmd_list)
     
@@ -133,7 +133,7 @@ def main():
     validate_parser = subparsers.add_parser('validate', help='Validate a recording')
     validate_parser.add_argument('--trial-id', required=True,
                                 help='Trial ID to validate (e.g., 20250130_143022)')
-    validate_parser.add_argument('--data-dir', default='/home/joshua/Research/dex-teleop/data',
+    validate_parser.add_argument('--data-dir', default=None,
                                 help='Data directory (default: ./data)')
     validate_parser.set_defaults(func=cmd_validate)
     
@@ -145,7 +145,7 @@ def main():
                               help='Playback speed multiplier (default: 1.0)')
     replay_parser.add_argument('--dry-run', action='store_true',
                               help='Validate and show stats without robot motion')
-    replay_parser.add_argument('--data-dir', default='/home/joshua/Research/dex-teleop/data',
+    replay_parser.add_argument('--data-dir', default=None,
                               help='Data directory (default: ./data)')
     replay_parser.add_argument('--smooth', type=float, default=5.0,
                               help='Smoothing sigma for joint trajectories (default: 5.0, 0 to disable)')
@@ -155,9 +155,9 @@ def main():
     
     args = parser.parse_args()
     
-    # Add data_dir to record command if not present
+    # Add data_dir to record command if not present (uses default from recorder_lib)
     if args.command == 'record':
-        args.data_dir = '/home/joshua/Research/dex-teleop/data'
+        args.data_dir = None
     
     # Execute command
     return args.func(args)

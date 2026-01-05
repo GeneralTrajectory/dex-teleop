@@ -31,13 +31,18 @@ except ImportError:
     sys.exit(1)
 
 
-def load_trial(trial_id: str, data_dir: str = '/home/joshua/Research/dex-teleop/data') -> Dict[str, Any]:
+def _get_default_data_dir() -> str:
+    """Get default data directory (relative to this module)."""
+    return str(Path(__file__).parent / 'data')
+
+
+def load_trial(trial_id: str, data_dir: str = None) -> Dict[str, Any]:
     """
     Load a recorded trial from HDF5.
     
     Args:
         trial_id: Trial identifier (timestamp format: 20250130_143022)
-        data_dir: Directory containing trial files
+        data_dir: Directory containing trial files (default: ./data)
         
     Returns:
         Dict with structure:
@@ -56,6 +61,9 @@ def load_trial(trial_id: str, data_dir: str = '/home/joshua/Research/dex-teleop/
             'inspire_right': {...},
         }
     """
+    if data_dir is None:
+        data_dir = _get_default_data_dir()
+    
     trial_file = Path(data_dir) / f"trial_{trial_id}.h5"
     
     if not trial_file.exists():
@@ -133,8 +141,8 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description="Load and inspect a recording")
     parser.add_argument('trial_id', help='Trial ID to load')
-    parser.add_argument('--data-dir', default='/home/joshua/Research/dex-teleop/data',
-                       help='Data directory')
+    parser.add_argument('--data-dir', default=None,
+                       help='Data directory (default: ./data)')
     args = parser.parse_args()
     
     print(f"Loading trial: {args.trial_id}")

@@ -9,10 +9,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, Tuple, Optional
 
-# Add paths for imports
+# Add parent path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, '/home/joshua/Research/inspire_hands')
-sys.path.insert(0, '/home/joshua/Documents/Sources/Papers/Cursor/AnyDexGrasp')
+
+# Optional: Add inspire_hands path from environment
+inspire_path = os.environ.get('INSPIRE_HANDS_PATH', '')
+if inspire_path and inspire_path not in sys.path:
+    sys.path.insert(0, inspire_path)
 
 from .pedal import RecorderPedal
 from .xarm_worker import XArmRecorder
@@ -218,9 +221,9 @@ class RecorderOrchestrator:
         else:
             print("🔌 Using tracker proxy process (isolates SDK crashes)")
         
-        # Tracker assignment by serial
-        RIGHT_TRACKER_SERIAL = 'LHR-A56A8A21'
-        LEFT_TRACKER_SERIAL = 'LHR-D51DBC11'
+        # Tracker assignment by serial (configurable via environment)
+        RIGHT_TRACKER_SERIAL = os.environ.get('VIVE_TRACKER_RIGHT', None)
+        LEFT_TRACKER_SERIAL = os.environ.get('VIVE_TRACKER_LEFT', None)
         trackers_by_serial = {t.get_serial(): t for t in tracker_list}
         
         # Initialize xArm mappers

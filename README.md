@@ -1,354 +1,258 @@
-# dex-teleop: VR-based Teleoperation for Dexterous Manipulation
+# dex-teleop
 
-Research-grade teleoperation system for xArm robots with Inspire dexterous grippers using HTC Vive Tracker 3.0.
+**VR-based Teleoperation for Dexterous Manipulation**
 
-## Project Overview
+A complete system for teleoperating robot arms and dexterous grippers using VR tracking. Control xArm robots with HTC Vive Trackers and Inspire Hands with Meta Quest hand tracking—all synchronized and recorded for imitation learning.
 
-This repository implements a safe, intuitive teleoperation interface for controlling robotic arms with 6-DOF tracking. The system is designed for collecting high-quality demonstration data for imitation learning and reinforcement learning of dexterous manipulation tasks.
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python 3.8+">
+  <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT License">
+  <img src="https://img.shields.io/badge/platform-Ubuntu%2020.04+-orange.svg" alt="Ubuntu 20.04+">
+</p>
 
-## Current Status
+## Features
 
-### ✅ Phase 1: Single-Arm Teleoperation (COMPLETE)
-
-- **Control system**: Relative offset control with workspace scaling
-- **Hardware**: 1 Vive Tracker → Right xArm (192.168.1.214)
-- **Safety features**: 
-  - Table collision prevention (200mm gripper-aware)
-  - Joint limit enforcement (Joint1: ±90°)
-  - Workspace boundary enforcement
-- **Control rate**: 100Hz servo mode streaming with smooth motion interpolation
-
-### ✅ Phase 2: Bimanual Control (COMPLETE)
-
-- **Control system**: Independent control of left and right arms
-- **Hardware**: 2 Vive Trackers → Left + Right xArms
-- **Features**:
-  - Simultaneous calibration for both arms
-  - Independent safety monitoring per arm
-  - Tracker assignment by serial number
-- **Usage**: `python vive_teleop_xarm.py --mode both`
-
-### ✅ Phase 3: Dexterous Gripper Control (COMPLETE)
-
-- **Control system**: Meta Quest hand tracking → Inspire Hands
-- **Hardware**: Meta Quest headset → 2 Inspire Hands via UDP
-- **Features**:
-  - Real-time bimanual finger control (6 DOF per hand)
-  - 60Hz control loop with adaptive smoothing
-  - Background UDP receiver and async command sending
-- **Usage**: `python quest_inspire_teleop.py`
-
-### ✅ Phase 4: Data Recording (COMPLETE)
-
-- **Control system**: Unified recorder for xArm + Inspire Hands
-- **Features**:
-  - Pedal-triggered start/stop recording
-  - Synchronized capture (100Hz xArm, 60Hz Inspire)
-  - HDF5 format for ML pipelines
-  - Ephemeral mode for testing
-  - Replay functionality
-- **Usage**: `python teleop_recorder.py record --subject S1 --task pick`
-
-### 🚧 Future Phases
-
-- **Phase 5**: Visual feedback and workspace visualization
-- **Phase 6**: Force feedback integration
+- **Vive Tracker → xArm Control**: 6-DOF teleoperation with 100Hz servo streaming
+- **Quest Hand Tracking → Inspire Hands**: Real-time bimanual dexterous control at 60Hz
+- **Synchronized Recording**: Capture demonstrations in HDF5 format for ML pipelines
+- **Safety System**: Multi-layer collision detection, workspace limits, smooth re-engagement
+- **Bimanual Support**: Control two arms and two hands simultaneously
 
 ## Quick Start
 
-### Prerequisites
-
-**Hardware:**
-- 2× HTC Vive Base Station 2.0 (mounted, powered on)
-- 1× HTC Vive Tracker 3.0 (charged, paired via SteamVR)
-- 1× xArm robot (right arm: 192.168.1.214)
-- 1× Inspire Hand gripper (mounted on xArm)
-
-**Software:**
-- Ubuntu 20.04+ with SteamVR running
-- Python 3.7+
-- All dependencies from `Vive_Tracker/requirements.txt` installed
-
-### Installation
+### 1. Install Dependencies
 
 ```bash
-cd /home/joshua/Research/dex-teleop
+# Clone the repository
+git clone https://github.com/your-username/dex-teleop.git
+cd dex-teleop
 
-# Install Vive Tracker dependencies
-cd Vive_Tracker
-pip install openvr scipy ipython PyOpenGL PyOpenGL_accelerate
+# Install Python dependencies
+pip install -r requirements.txt
 
-# Verify installation
-cd ..
-python test_vive_teleop.py
+# Install xArm SDK (from GitHub, not PyPI)
+pip install git+https://github.com/xArm-Developer/xArm-Python-SDK.git
+
+# Install Vive Tracker library (as submodule)
+git submodule update --init --recursive
 ```
 
-### Basic Usage
+### 2. Configure Your Hardware
 
-**Teleoperation only:**
+```bash
+# Copy and edit the configuration template
+cp config/example.env .env
+# Edit .env with your robot IPs and tracker serials
+```
+
+### 3. Run Teleoperation
+
+```bash
+# Source your configuration
+source .env
+
+# Test xArm connection (dry run - robot won't move)
+python tests/test_vive_teleop.py
+
+# Enable live control (CAUTION: robot will move!)
+export EXECUTE_LIVE=1
+
+# Start teleoperation (right arm)
+python vive_teleop_xarm.py --mode right
+
+# Or bimanual control
+python vive_teleop_xarm.py --mode both
+```
+
+> ⚠️ **Safety**: By default, `EXECUTE_LIVE=0` and the robot won't move.
+> Set `EXECUTE_LIVE=1` only after verifying your workspace is clear.
+
+See [INSTALLATION.md](INSTALLATION.md) for detailed setup instructions.
+
+## System Overview
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│  Vive Tracker   │────▶│  vive_teleop.py  │────▶│   xArm Robot    │
+│   (per wrist)   │     │   100Hz servo    │     │  (left/right)   │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│  Quest Headset  │────▶│ quest_teleop.py  │────▶│  Inspire Hand   │
+│  (hand track)   │ UDP │    60Hz async    │     │  (left/right)   │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                    teleop_recorder.py                            │
+│  Synchronized capture → HDF5 files → ML training pipelines       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Hardware Requirements
+
+| Component | Requirement |
+|-----------|-------------|
+| **Robot Arm** | xArm 6/7 (tested with xArm 7) |
+| **Gripper** | Inspire Hand (left and/or right) |
+| **Arm Tracking** | HTC Vive Tracker 3.0 + Base Stations 2.0 |
+| **Hand Tracking** | Meta Quest 2/3/Pro |
+| **Computer** | Ubuntu 20.04+, NVIDIA GPU recommended |
+
+## Usage Examples
+
+### Single-Arm Teleoperation
+
 ```bash
 export XARM_IP_RIGHT="192.168.1.214"
-python vive_teleop_xarm.py --mode right
+python vive_teleop_xarm.py --mode right --position-scale 1.5
 ```
 
-**Record demonstrations:**
+### Bimanual with Recording
+
 ```bash
-source setup_recorder.sh
-python teleop_recorder.py record --subject S1 --task pick
-
-# Press 'b' to start → perform demo → press 'b' to stop
+source config/example.env
+python teleop_recorder.py record --subject S1 --task pick --arms both
+# Press 'b' to start/stop recording
 ```
 
-See [notes/QUICKSTART.md](notes/QUICKSTART.md) for detailed instructions.
-See [RECORDER.md](RECORDER.md) for recording guide.
+### Quest Hand Control Only
 
-## Repository Structure
+```bash
+source setup_quest_teleop.sh
+python quest_inspire_teleop.py
+```
+
+### Replay a Recording
+
+```bash
+python teleop_recorder.py replay --trial-id 20250130_143022 --speed 0.5 --dry-run
+```
+
+## Configuration
+
+All settings are configurable via environment variables. See [config/example.env](config/example.env) for a complete list.
+
+Key settings:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `XARM_IP_LEFT` | Left arm IP address | `192.168.1.111` |
+| `XARM_IP_RIGHT` | Right arm IP address | `192.168.1.214` |
+| `VIVE_TRACKER_LEFT` | Left tracker serial | Auto-detect |
+| `VIVE_TRACKER_RIGHT` | Right tracker serial | Auto-detect |
+| `VIVE_POSITION_SCALE` | Movement sensitivity | `1.5` |
+| `TABLE_Z_MM` | Table height for collision | `15` |
+
+## Project Structure
 
 ```
 dex-teleop/
-├── Vive_Tracker/              # Vive Tracker interface library
-│   ├── track.py               # Core tracking module
-│   ├── run_tracker.py         # Standalone tracker viewer
-│   ├── fairmotion_ops/        # Transformation utilities
-│   └── fairmotion_vis/        # OpenGL visualization
+├── vive_teleop_xarm.py      # Vive → xArm teleoperation
+├── quest_inspire_teleop.py  # Quest → Inspire Hands control
+├── teleop_recorder.py       # Unified recorder with pedal control
+├── xarm_adapter.py          # xArm safety wrapper
+├── quest_hand_receiver.py   # UDP receiver for Quest data
+├── load_recording.py        # Data loading utilities
+├── recv_rotations.py        # Quest data debug receiver
+├── move_arm_to_home.py      # Helper to position robot
 │
-├── vive_teleop_xarm.py        # Vive → xArm teleoperation ⭐
-├── quest_inspire_teleop.py    # Quest → Inspire Hands teleoperation ⭐
-├── teleop_recorder.py         # Unified recorder (xArm + Inspire) ⭐
-├── recorder_lib/              # Recording library
-│   ├── state_machine.py       # Recorder orchestrator
-│   ├── writer.py              # HDF5 data writer
-│   ├── xarm_worker.py         # xArm recording worker
-│   ├── inspire_worker.py      # Inspire recording worker
-│   ├── pedal.py               # Toggle pedal with debouncing
-│   └── replay.py              # Replay functionality
-├── load_recording.py          # Data loader utility
-├── quest_hand_receiver.py     # UDP receiver for Quest hand data
-├── recv_rotations.py          # Simple Quest data test receiver
-├── test_vive_teleop.py        # Vive connectivity tests
-├── test_safety_features.py    # Safety validation tests
-├── test_recorder.py           # Recorder tests
-├── move_arm_to_home.py        # Helper: position arm before teleop
-├── setup_recorder.sh          # Recorder environment setup
-├── launch_teleop.sh           # Vive teleop launcher
+├── recorder_lib/            # Recording library modules
+├── Vive_Tracker/            # Vive tracking interface (submodule)
+├── quest_app/               # Quest Unity app source + APK
 │
-├── data/                      # Recording output directory
-├── README.md                  # This file
-├── RECORDER_README.md         # Recording system guide
-├── notes/                     # Detailed documentation
-│   ├── QUICKSTART.md          # Complete user guide
-│   ├── TECHNICAL.md           # Technical reference
-│   └── INSPIRE_TELEOP_LESSONS.md  # Quest troubleshooting
-└── Vive_Tracker/              # Vive interface library
+├── scripts/                 # Shell scripts for setup
+├── tests/                   # Test suite
+├── docs/                    # Additional documentation
+├── config/                  # Configuration templates
+└── data/                    # Recorded demonstrations (gitignored)
 ```
 
-## Key Features
+## Recording Data Format
 
-### 🎮 Intuitive Control
+Recordings are saved in HDF5 format:
 
-- **Relative offset mapping**: Your hand movements → robot movements (scaled)
-- **Auto-calibration**: 3-second setup, no manual alignment needed
-- **Smooth tracking**: 30Hz control loop with motion interpolation
-- **Configurable scaling**: Adjust sensitivity to match your preference
+```
+trial_<timestamp>.h5
+├── /metadata              # Subject, task, duration, etc.
+├── /xarm_left             # Left arm trajectory (100Hz)
+│   ├── timestamps_mono    # Monotonic timestamps
+│   ├── joint_positions    # 7-DOF joint angles
+│   └── tcp_poses          # 6-DOF TCP pose
+├── /xarm_right            # Right arm trajectory
+├── /inspire_left          # Left hand angles (60Hz)
+└── /inspire_right         # Right hand angles
+```
 
-### 🛡️ Comprehensive Safety
+Load recordings in Python:
 
-- **Table collision prevention**: Accounts for 200mm gripper extension, multi-point sampling
-- **Joint limits**: Prevents reaching behind table (Joint1: -90° to +90°)
-- **Workspace boundaries**: Hard limits on X, Y, Z positions
-- **Graceful degradation**: Holds safe position on violations, never executes unsafe commands
-- **Emergency stop**: Ctrl+C or xArm STOP button
+```python
+from load_recording import load_trial
 
-### 🔬 Research-Ready
+data = load_trial('20250130_143022')
+joints = data['xarm_left']['joint_positions']  # (N, 7)
+hand = data['inspire_left']['angles']          # (N, 6)
+```
 
-- **Standard approach**: Relative offset control (ALOHA/DROID methodology)
-- **Reproducible**: Full configuration via environment variables
-- **Well-tested**: Comprehensive test suite validates all safety features
-- **Extensible**: Clean class structure for adding features
-- **Documented**: Extensive documentation for future researchers
+## Safety Features
+
+The system includes multiple safety layers:
+
+1. **Workspace Boundaries**: Prevents reaching outside defined limits
+2. **Table Collision Detection**: Multi-point gripper collision check
+3. **Joint Limits**: Prevents unreachable configurations
+4. **Smooth Re-engagement**: Gradual motion resumption after violations
+5. **Emergency Stop**: Ctrl+C or foot pedal ('b' key)
 
 ## Documentation
 
-- **[notes/QUICKSTART.md](notes/QUICKSTART.md)** - Complete user guide (Vive + Quest + Recording)
-- **[RECORDER.md](RECORDER.md)** - Recording system guide (NEW)
-- **[notes/TECHNICAL.md](notes/TECHNICAL.md)** - Technical reference and tuning
-- **[notes/INSPIRE_TELEOP_LESSONS.md](notes/INSPIRE_TELEOP_LESSONS.md)** - Quest troubleshooting guide
-- **[Vive_Tracker/README.md](Vive_Tracker/README.md)** - Vive Tracker setup and usage
-
-## Safety Notes
-
-⚠️ **CRITICAL SAFETY REMINDERS:**
-
-1. **Always have emergency stop accessible** - xArm STOP button or Ctrl+C
-2. **Clear workspace before each session** - Remove obstacles, verify table is secure
-3. **Start conservatively** - Use low scaling (1.0-1.5) and speed (100-200 mm/s)
-4. **Test safety features** - Run `test_safety_features.py` after any code changes
-5. **Never disable safety** - Don't bypass collision checks or workspace limits
-6. **Monitor continuously** - Watch arm behavior, stop immediately if unexpected
-
-The system is designed to prevent damage, but human supervision is essential.
-
-## Configuration Examples
-
-### Conservative (First-Time Use)
-```bash
-export VIVE_POSITION_SCALE="1.0"
-export VIVE_ROTATION_SCALE="0.8"
-export TELEOP_SPEED="100"
-python vive_teleop_xarm.py
-```
-
-### Balanced (Default)
-```bash
-export VIVE_POSITION_SCALE="1.5"
-export VIVE_ROTATION_SCALE="1.0"
-export TELEOP_SPEED="200"
-python vive_teleop_xarm.py
-```
-
-### Responsive (Experienced Users)
-```bash
-export VIVE_POSITION_SCALE="2.0"
-export VIVE_ROTATION_SCALE="1.0"
-export TELEOP_SPEED="250"
-export TELEOP_RATE_HZ="50"
-python vive_teleop_xarm.py
-```
-
-## Testing
-
-### Run All Tests
-
-```bash
-# 1. Connectivity tests (safe, no motion)
-python test_vive_teleop.py
-
-# 2. Safety feature tests (safe, no motion)
-python test_safety_features.py
-
-# 3. Live teleoperation (moves robot)
-python vive_teleop_xarm.py --position-scale 1.0 --speed 100
-```
-
-### Expected Test Results
-
-All tests should pass before using the system for demonstrations:
-- ✅ Tracker detection
-- ✅ Pose streaming
-- ✅ xArm connection
-- ✅ Coordinate transformation
-- ✅ Workspace boundaries
-- ✅ Table collision detection
-- ✅ Integrated safety validation
+- [INSTALLATION.md](INSTALLATION.md) - Detailed setup guide
+- [docs/RECORDER.md](docs/RECORDER.md) - Recording system guide
+- [docs/QUICKSTART.md](docs/QUICKSTART.md) - Quick reference
+- [docs/TECHNICAL.md](docs/TECHNICAL.md) - Technical details
+- [quest_app/README.md](quest_app/README.md) - Quest app documentation
 
 ## Troubleshooting
 
-See [QUICKSTART.md](QUICKSTART.md#troubleshooting) for common issues and solutions.
+**"No Vive trackers detected"**
+- Ensure SteamVR is running
+- Check tracker is powered on (blue LED)
+- Re-pair tracker in SteamVR
 
-**Most common issues:**
+**"Failed to connect to xArm"**
+- Verify xArm is powered on
+- Check IP address: `ping 192.168.1.214`
+- Ensure no other connections to xArm
 
-1. **"No Vive trackers detected"** → Ensure SteamVR running, tracker paired and powered
-2. **"Failed to connect to xArm"** → Check IP, network, ensure no other connections
-3. **"Safety block: Table collision"** → Expected behavior, move tracker upward
-4. **Motion feels wrong** → Adjust `VIVE_POSITION_SCALE` (try 1.0, 1.5, or 2.0)
-
-## Development
-
-### Adding Features
-
-The codebase is designed for extension:
-
-**Add data recording:**
-```python
-# In ViveToXArmMapper.compute_target_pose()
-# Save (timestamp, tracker_pose, arm_pose, camera_frame) to dataset
-```
-
-**Add data recording:**
-```python
-# See quest_inspire_teleop.py for example of recording hand tracking data
-# Similar pattern can be applied to vive_teleop_xarm.py
-```
-
-### Code Organization
-
-- **`vive_teleop_xarm.py`**: Core implementation (280 lines)
-  - `ViveToXArmMapper`: Main class handling all logic
-  - `run_teleoperation()`: Control loop
-  - `main()`: CLI interface
-
-- **Test scripts**: Comprehensive validation
-  - Unit tests for safety features
-  - Integration tests for full system
-  - Hardware-in-loop tests with real devices
-
-- **Documentation**: Multiple levels
-  - Quick start for immediate use
-  - Technical docs for understanding
-  - Implementation summary for maintenance
-
-## Contributing
-
-When modifying this code:
-
-1. **Test safety features first**: Run `test_safety_features.py`
-2. **Test connectivity**: Run `test_vive_teleop.py`
-3. **Test with robot**: Start conservatively, verify behavior
-4. **Update documentation**: Keep docs in sync with code
-5. **Maintain safety**: Never bypass collision checks
-
-## License
-
-This project combines code from:
-- **Vive_Tracker**: Original implementation from snuvclab/Vive_Tracker
-- **AnyDexGrasp**: Original grasping framework
-- **This teleoperation layer**: Integration and safety features
-
-Refer to individual component licenses for details.
+**Quest hands don't respond**
+- Verify Quest app is streaming (check HUD)
+- Test with: `python recv_rotations.py`
+- Check USB ports: `ls -l /dev/ttyUSB*`
 
 ## Citation
 
-If you use this teleoperation system in your research:
+If you use this system in your research, please cite:
 
 ```bibtex
-@software{vive_xarm_teleop,
-  title={Vive Tracker Teleoperation for xArm with Dexterous Grippers},
-  author={Your Name},
+@software{dex_teleop,
+  title={dex-teleop: VR-based Teleoperation for Dexterous Manipulation},
+  author={Belofsky, Joshua},
   year={2025},
-  howpublished={\url{https://github.com/yourusername/dex-teleop}}
+  url={https://github.com/your-username/dex-teleop}
 }
 ```
 
 Also cite the underlying systems:
-- HTC Vive Tracker implementation: https://github.com/snuvclab/Vive_Tracker
-- xArm Python SDK: https://github.com/xArm-Developer/xArm-Python-SDK
 
-## Support
+- **Vive Tracker**: [snuvclab/Vive_Tracker](https://github.com/snuvclab/Vive_Tracker)
+- **xArm SDK**: [xArm-Developer/xArm-Python-SDK](https://github.com/xArm-Developer/xArm-Python-SDK)
 
-For issues:
-1. Check [notes/QUICKSTART.md](notes/QUICKSTART.md#troubleshooting) troubleshooting section
-2. Review [notes/README_TELEOP.md](notes/README_TELEOP.md) for technical details
-3. Verify hardware connections (SteamVR, xArm, tracker)
-4. Run test suite to isolate problem
+## License
 
-## Roadmap
-
-- [x] Single-arm teleoperation (right arm)
-- [x] Safety system (collision, limits, boundaries)
-- [x] Test suite (connectivity, safety, integration)
-- [x] Documentation (quick start, technical, implementation)
-- [x] Bimanual teleoperation (both arms simultaneously)
-- [x] Dexterous gripper control (Quest hand tracking → Inspire Hands)
-- [x] Data recording (synchronized xArm + Inspire capture, HDF5 format)
-- [ ] Camera integration (synchronized RGB-D frames)
-- [ ] Visual feedback (Open3D real-time visualization)
-- [ ] Force feedback (haptic feedback on collisions)
+This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-Built on top of:
-- **Vive_Tracker** by snuvclab - VR tracking interface
-- **AnyDexGrasp** - Dexterous grasping framework
-- **xArm Python SDK** by UFACTORY - Robot control API
-- **Inspire Hand** - Dexterous gripper hardware
-
+Built with:
+- [Vive_Tracker](https://github.com/snuvclab/Vive_Tracker) by snuvclab
+- [xArm Python SDK](https://github.com/xArm-Developer/xArm-Python-SDK) by UFACTORY
+- Meta Quest XR SDK for hand tracking

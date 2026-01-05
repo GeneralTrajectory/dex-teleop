@@ -23,17 +23,25 @@ except ImportError:
     SCIPY_AVAILABLE = False
     print("⚠️ scipy not installed. Install with: pip install scipy")
 
-# Add xArm SDK to path
-sys.path.insert(0, '/home/joshua/Documents/Sources/Papers/Cursor/AnyDexGrasp')
+# Add parent path for local imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-def list_trials(data_dir: str = '/home/joshua/Research/dex-teleop/data'):
+def _get_default_data_dir() -> str:
+    """Get default data directory (relative to this module)."""
+    return str(Path(__file__).parent.parent / 'data')
+
+
+def list_trials(data_dir: str = None):
     """
     List all available trials.
     
     Args:
-        data_dir: Directory containing trial files
+        data_dir: Directory containing trial files (default: ./data)
     """
+    if data_dir is None:
+        data_dir = _get_default_data_dir()
+    
     if not HDF5_AVAILABLE:
         print("❌ h5py not installed")
         return
@@ -84,7 +92,7 @@ def list_trials(data_dir: str = '/home/joshua/Research/dex-teleop/data'):
 
 
 def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
-                data_dir: str = '/home/joshua/Research/dex-teleop/data',
+                data_dir: str = None,
                 smooth_sigma: float = 5.0,
                 collision_drop_threshold: float = 0.80):
     """
@@ -94,11 +102,14 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
         trial_id: Trial identifier
         speed: Playback speed multiplier (1.0 = real-time)
         dry_run: If True, don't move robots (just validate and plot)
-        data_dir: Directory containing trial files
+        data_dir: Directory containing trial files (default: ./data)
         smooth_sigma: Standard deviation for Gaussian smoothing (0 to disable)
         collision_drop_threshold: If collision detected after this progress (0.0-1.0),
                                   open gripper and return success. Set to 1.0 to disable.
     """
+    if data_dir is None:
+        data_dir = _get_default_data_dir()
+    
     if not HDF5_AVAILABLE:
         print("❌ h5py not installed")
         return 1
@@ -284,7 +295,9 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
     hand_indices = {}
     if 'inspire_traj' in locals() and len(inspire_traj) > 0:
         try:
-            sys.path.insert(0, '/home/joshua/Research/inspire_hands')
+            inspire_path = os.environ.get('INSPIRE_HANDS_PATH', '')
+            if inspire_path and inspire_path not in sys.path:
+                sys.path.insert(0, inspire_path)
             from inspire_hand import InspireHand
             replay_hand_speed = int(os.environ.get('REPLAY_INSPIRE_SPEED', '1000'))
             print("\n🤝 Connecting to Inspire Hand(s) for replay...")
@@ -495,17 +508,20 @@ def replay_trial(trial_id: str, speed: float = 1.0, dry_run: bool = False,
     return 0  # Success
 
 
-def validate_trial(trial_id: str, data_dir: str = '/home/joshua/Research/dex-teleop/data'):
+def validate_trial(trial_id: str, data_dir: str = None):
     """
     Validate a recorded trial.
     
     Args:
         trial_id: Trial identifier
-        data_dir: Directory containing trial files
+        data_dir: Directory containing trial files (default: ./data)
         
     Returns:
         True if validation passed
     """
+    if data_dir is None:
+        data_dir = _get_default_data_dir()
+    
     if not HDF5_AVAILABLE:
         print("❌ h5py not installed")
         return False

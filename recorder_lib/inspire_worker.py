@@ -7,8 +7,6 @@ import threading
 from typing import List, Dict, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    import sys
-    sys.path.insert(0, '/home/joshua/Research/inspire_hands')
     from inspire_hand import InspireHand
 
 

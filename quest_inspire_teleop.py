@@ -18,11 +18,24 @@ from typing import Dict, Optional, List
 from collections import deque
 import threading
 
-# Add inspire_hands to path (absolute path to avoid path resolution issues)
-inspire_hands_path = '/home/joshua/Research/inspire_hands'
-if inspire_hands_path not in sys.path:
-    sys.path.insert(0, inspire_hands_path)
-from inspire_hand import InspireHand
+# Import inspire_hand library
+# Install performance fork: pip install git+https://github.com/GeneralTrajectory/inspire_hands.git
+# Or original (slower): pip install git+https://github.com/Sentdex/inspire_hands.git
+try:
+    from inspire_hand import InspireHand
+except ImportError:
+    # Try adding common install locations to path
+    import os
+    inspire_path = os.environ.get('INSPIRE_HANDS_PATH', '')
+    if inspire_path and inspire_path not in sys.path:
+        sys.path.insert(0, inspire_path)
+    try:
+        from inspire_hand import InspireHand
+    except ImportError:
+        print("❌ inspire_hand library not found.")
+        print("   Install: pip install git+https://github.com/GeneralTrajectory/inspire_hands.git")
+        print("   Or set INSPIRE_HANDS_PATH environment variable")
+        sys.exit(1)
 
 # Import Quest receiver and foot pedal from local modules
 from quest_hand_receiver import QuestHandReceiver

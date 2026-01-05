@@ -45,12 +45,8 @@ import threading
 # Add Vive_Tracker to path
 sys.path.insert(0, str(Path(__file__).parent / 'Vive_Tracker'))
 from track import ViveTrackerModule
-from fairmotion_ops import conversions
 
-# Add AnyDexGrasp to path for xArm adapter (absolute path)
-anydex_path = '/home/joshua/Documents/Sources/Papers/Cursor/AnyDexGrasp'
-if anydex_path not in sys.path:
-    sys.path.insert(0, anydex_path)
+# Import xarm_adapter from local module
 from xarm_adapter import create_xarm_adapter, XArmAdapter
 
 try:
@@ -712,12 +708,21 @@ def run_teleoperation(mode: str = 'right', skip_home: bool = False):
         print(f"❌ Bimanual mode requires 2 trackers, but only {len(tracker_list)} found")
         return 1
     
-    # Tracker serial numbers (hardcoded for your setup)
-    RIGHT_TRACKER_SERIAL = 'LHR-A56A8A21'  # Right wrist
-    LEFT_TRACKER_SERIAL = 'LHR-D51DBC11'   # Left wrist
+    # Tracker serial numbers (configurable via environment variables)
+    # Find your tracker serials in SteamVR: Devices → Device Info
+    RIGHT_TRACKER_SERIAL = os.environ.get('VIVE_TRACKER_RIGHT', None)
+    LEFT_TRACKER_SERIAL = os.environ.get('VIVE_TRACKER_LEFT', None)
     
     # Build tracker lookup by serial
     trackers_by_serial = {t.get_serial(): t for t in tracker_list}
+    
+    # Print available trackers for configuration help
+    if not RIGHT_TRACKER_SERIAL and not LEFT_TRACKER_SERIAL:
+        print("\n💡 TIP: Set VIVE_TRACKER_LEFT and VIVE_TRACKER_RIGHT environment variables")
+        print("   to specify which tracker controls which arm.")
+        print("   Available trackers:")
+        for serial in trackers_by_serial.keys():
+            print(f"     - {serial}")
     
     # Initialize mappers based on mode
     mappers = {}
@@ -725,13 +730,15 @@ def run_teleoperation(mode: str = 'right', skip_home: bool = False):
     try:
         if mode in ['left', 'both']:
             left_ip = os.environ.get('XARM_IP_LEFT', '192.168.1.111')
-            # Use left-hand tracker (LHR-D51DBC11)
-            if LEFT_TRACKER_SERIAL in trackers_by_serial:
+            # Use left-hand tracker
+            if LEFT_TRACKER_SERIAL and LEFT_TRACKER_SERIAL in trackers_by_serial:
                 left_tracker = trackers_by_serial[LEFT_TRACKER_SERIAL]
                 print(f"✅ Using left-hand tracker: {LEFT_TRACKER_SERIAL}")
             else:
-                print(f"⚠️  Left tracker {LEFT_TRACKER_SERIAL} not found, using first available")
+                if LEFT_TRACKER_SERIAL:
+                    print(f"⚠️  Left tracker {LEFT_TRACKER_SERIAL} not found, using first available")
                 left_tracker = tracker_list[0]
+                print(f"   Auto-assigned left tracker: {left_tracker.get_serial()}")
             
             mappers['left'] = ViveToXArmMapper(
                 xarm_ip=left_ip,
@@ -743,13 +750,16 @@ def run_teleoperation(mode: str = 'right', skip_home: bool = False):
         
         if mode in ['right', 'both']:
             right_ip = os.environ.get('XARM_IP_RIGHT', '192.168.1.214')
-            # Use right-hand tracker (LHR-A56A8A21)
-            if RIGHT_TRACKER_SERIAL in trackers_by_serial:
+            # Use right-hand tracker
+            if RIGHT_TRACKER_SERIAL and RIGHT_TRACKER_SERIAL in trackers_by_serial:
                 right_tracker = trackers_by_serial[RIGHT_TRACKER_SERIAL]
                 print(f"✅ Using right-hand tracker: {RIGHT_TRACKER_SERIAL}")
             else:
-                print(f"⚠️  Right tracker {RIGHT_TRACKER_SERIAL} not found, using first available")
-                right_tracker = tracker_list[0]
+                if RIGHT_TRACKER_SERIAL:
+                    print(f"⚠️  Right tracker {RIGHT_TRACKER_SERIAL} not found, using first available")
+                # Use second tracker if bimanual, otherwise first
+                right_tracker = tracker_list[-1] if len(tracker_list) > 1 else tracker_list[0]
+                print(f"   Auto-assigned right tracker: {right_tracker.get_serial()}")
             
             mappers['right'] = ViveToXArmMapper(
                 xarm_ip=right_ip,

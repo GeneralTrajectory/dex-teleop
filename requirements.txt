@@ -1,0 +1,28 @@
+# dex-teleop: VR Teleoperation for Dexterous Manipulation
+# Install with: pip install -r requirements.txt
+
+# Core dependencies
+numpy>=1.21.0
+scipy>=1.7.0
+h5py>=3.8.0
+
+# VR Tracking (Vive Tracker)
+openvr>=1.23.0
+PyOpenGL>=3.1.0
+PyOpenGL-accelerate>=3.1.0
+
+# Serial Communication (Inspire Hands)
+# pymodbus provides write_multiple_registers() for low-level 60Hz control
+pymodbus>=3.0.0
+pyserial>=3.5
+
+# xArm Robot Control
+# NOTE: The official xArm SDK must be installed from GitHub, NOT PyPI
+# pip install git+https://github.com/xArm-Developer/xArm-Python-SDK.git
+
+# Inspire Hand Control (RH56 series) - use performance fork for 60Hz control
+# pip install git+https://github.com/GeneralTrajectory/inspire_hands.git
+# Or original (slower): pip install git+https://github.com/Sentdex/inspire_hands.git
+
+# Optional: Development tools
+ipython>=7.0.0

@@ -51,7 +51,7 @@ def _xarm_io_process(queue: mp.Queue, arm_ip: str, poll_hz: float = 100.0):
         poll_hz: Polling rate in Hz
     """
     # Import xArm SDK in child process
-    sys.path.insert(0, '/home/joshua/Documents/Sources/Papers/Cursor/AnyDexGrasp')
+    # xArm SDK should be installed: pip install git+https://github.com/xArm-Developer/xArm-Python-SDK.git
     
     try:
         from xarm.wrapper import XArmAPI

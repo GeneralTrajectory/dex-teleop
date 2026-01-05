@@ -8,11 +8,7 @@ import sys
 import os
 from pathlib import Path
 
-# Add AnyDexGrasp to path (absolute path)
-anydex_path = '/home/joshua/Documents/Sources/Papers/Cursor/AnyDexGrasp'
-if anydex_path not in sys.path:
-    sys.path.insert(0, anydex_path)
-
+# Import local xarm_adapter
 from xarm_adapter import create_xarm_adapter, HOME_POSE
 
 
